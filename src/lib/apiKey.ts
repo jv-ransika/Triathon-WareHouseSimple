@@ -28,7 +28,7 @@ export async function authenticateApiKey(req: Request): Promise<{ userId: string
   if (!key) return null;
   const record = await prisma.apiKey.findUnique({ where: { keyHash: hashApiKey(key) } });
   if (!record || record.revokedAt) return null;
-  // Fire-and-forget usage timestamp.
-  prisma.apiKey.update({ where: { id: record.id }, data: { lastUsedAt: new Date() } }).catch(() => {});
+  // Awaited: serverless platforms may drop work still pending after the response is sent.
+  await prisma.apiKey.update({ where: { id: record.id }, data: { lastUsedAt: new Date() } }).catch(() => {});
   return { userId: record.userId, keyId: record.id };
 }

@@ -10,7 +10,9 @@
     "db:sql": "prisma migrate diff --from-empty --to-schema-datamodel prisma/schema.prisma --script -o prisma/init.sql",
     "db:apply": "tsx scripts/db-apply.ts",
     "db:seed": "tsx prisma/seed.ts",
-    "db:setup": "npm run db:apply && npm run db:seed"
+    "db:setup": "npm run db:apply && npm run db:seed",
+    "test:e2e": "playwright test",
+    "test:cleanup": "tsx scripts/test-cleanup.ts"
   },
   "dependencies": {
     "@libsql/client": "^0.18.0",
@@ -25,6 +27,7 @@
     "zod": "^4.6.5"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@tailwindcss/postcss": "^4.3.3",
     "@types/node": "^26.6.3",
     "@types/react": "^19.3.0",

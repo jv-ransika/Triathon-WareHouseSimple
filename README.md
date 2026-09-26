@@ -160,6 +160,33 @@ Errors look like `{ "error": { "code": "...", "message": "..." } }`.
 | 409 | `insufficient_stock`, `invalid_transition` | Not enough stock, or a status change that isn't allowed |
 | 422 | `validation_error` | Body has the wrong shape |
 
+## Testing
+
+`tests/e2e.spec.ts` is a Playwright suite (27 tests) that drives the UI in Chrome and calls every API endpoint. It covers:
+
+- **Auth:** register, validation, login, logout and redirects
+- **UI:** dashboard, product search, filters and stock editing, and the order form
+- **Orders:** status changes, and stock being taken and returned
+- **API keys:** creating, revoking and deleting keys
+- **API:** every endpoint and error case
+
+It uses the Chrome installed on your machine; no browser download is needed.
+
+```bash
+npm run build
+npm run test:e2e        # starts `next start` on port 3100 against the local dev.db
+npm run test:cleanup    # removes e2e-*@test.local users, their keys and orders, and returns their stock
+```
+
+To run it against a deployed site:
+
+```bash
+BASE_URL=https://triathon-warehouse-simple.vercel.app npm run test:e2e
+npx dotenv -e .env.production.local -- npm run test:cleanup
+```
+
+> **Warning:** running the suite against a deployed site writes to its database. It temporarily changes the stock of `C32_STYLE_010`, `C32_TECH_050` and `C32_FRESH_020` and adds test orders. Run `test:cleanup` afterwards.
+
 ## Project layout
 
 ```
