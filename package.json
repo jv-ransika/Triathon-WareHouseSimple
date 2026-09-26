@@ -1,0 +1,39 @@
+{
+  "name": "warehouse-simple",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "prisma generate && next build",
+    "start": "next start",
+    "postinstall": "prisma generate",
+    "db:sql": "prisma migrate diff --from-empty --to-schema-datamodel prisma/schema.prisma --script -o prisma/init.sql",
+    "db:apply": "tsx scripts/db-apply.ts",
+    "db:seed": "tsx prisma/seed.ts",
+    "db:setup": "npm run db:apply && npm run db:seed"
+  },
+  "dependencies": {
+    "@libsql/client": "^0.18.0",
+    "@prisma/adapter-libsql": "^6.19.3",
+    "@prisma/client": "^6.19.3",
+    "bcryptjs": "^3.0.3",
+    "jose": "^6.2.12",
+    "next": "^15.5.26",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "server-only": "^0.0.1",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.3",
+    "@types/node": "^26.6.3",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "csv-parse": "^7.0.3",
+    "dotenv": "^18.0.4",
+    "prisma": "^6.19.3",
+    "tailwindcss": "^4.3.3",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3"
+  }
+}

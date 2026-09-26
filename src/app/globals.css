@@ -1,0 +1,92 @@
+@import "tailwindcss";
+
+:root {
+  --bg: #f6f6f4;
+  --surface: #fcfcfb;
+  --border: #e4e3df;
+  --text: #1c1c1a;
+  --muted: #6b6a66;
+  --accent: #2a78d6;
+  --accent-ink: #ffffff;
+  --chart: #2a78d6;
+  --grid: #ecebe7;
+  --good: #1f7a4d;
+  --warn: #9a6400;
+  --bad: #b3261e;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #121211;
+    --surface: #1a1a19;
+    --border: #2f2f2c;
+    --text: #ecebe7;
+    --muted: #a09f9a;
+    --accent: #3987e5;
+    --accent-ink: #ffffff;
+    --chart: #3987e5;
+    --grid: #2a2a27;
+    --good: #4cb982;
+    --warn: #e0a534;
+    --bad: #f07167;
+    color-scheme: dark;
+  }
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 14px;
+}
+
+@layer components {
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 1rem; }
+  .muted { color: var(--muted); }
+  .btn {
+    display: inline-flex; align-items: center; gap: .4rem; border-radius: 7px; padding: .45rem .9rem;
+    background: var(--accent); color: var(--accent-ink); font-weight: 500; cursor: pointer; border: 1px solid transparent;
+  }
+  .btn:disabled { opacity: .6; cursor: default; }
+  .btn-ghost { background: transparent; color: var(--text); border-color: var(--border); }
+  .btn-danger { background: transparent; color: var(--bad); border-color: var(--border); }
+  .btn-sm { padding: .2rem .55rem; font-size: 12px; }
+  .input {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 7px; padding: .45rem .65rem;
+    color: var(--text); width: 100%;
+  }
+  .input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  .label { display: block; font-size: 12px; font-weight: 500; color: var(--muted); margin-bottom: .25rem; }
+  .table-wrap { overflow-x: auto; }
+  .table { width: 100%; border-collapse: collapse; }
+  .table th { text-align: left; font-size: 12px; font-weight: 500; color: var(--muted); padding: .5rem .75rem; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  .table td { padding: .5rem .75rem; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  .table tr:last-child td { border-bottom: 0; }
+  .table th.num, .num { text-align: right; font-variant-numeric: tabular-nums; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; }
+  .badge { display: inline-flex; align-items: center; gap: .35rem; font-size: 12px; padding: .1rem .5rem; border-radius: 99px; border: 1px solid var(--border); }
+  .dot { width: 7px; height: 7px; border-radius: 99px; display: inline-block; }
+  .error { color: var(--bad); font-size: 13px; }
+  .link { color: var(--accent); }
+  .link:hover { text-decoration: underline; }
+
+  /* Charts: single series, thin marks, 4px rounded data ends, recessive baseline. */
+  .chart-cols {
+    display: flex; align-items: flex-end; gap: 2px; height: 220px; padding-bottom: 20px;
+    border-bottom: 1px solid var(--grid); position: relative;
+  }
+  .chart-col {
+    flex: 1; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center;
+    position: relative; outline: none; min-width: 0;
+  }
+  .chart-bar { width: min(70%, 28px); background: var(--chart); border-radius: 4px 4px 0 0; min-height: 2px; }
+  .chart-col:hover .chart-bar, .chart-col:focus .chart-bar { filter: brightness(1.15); }
+  .chart-x { position: absolute; bottom: -20px; font-size: 11px; color: var(--muted); white-space: nowrap; }
+  .chart-tip {
+    display: none; position: absolute; bottom: calc(100% + 4px); z-index: 10; white-space: nowrap; font-size: 12px;
+    background: var(--text); color: var(--bg); padding: .2rem .45rem; border-radius: 5px; pointer-events: none;
+  }
+  .chart-col:hover .chart-tip, .chart-col:focus .chart-tip { display: block; bottom: auto; top: 0; }
+  .hbar-track { height: 8px; border-radius: 4px; background: var(--grid); }
+  .hbar { height: 8px; border-radius: 4px; background: var(--chart); }
+}

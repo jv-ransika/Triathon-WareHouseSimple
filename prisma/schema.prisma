@@ -1,0 +1,76 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Prisma talks to libSQL through the driver adapter (src/lib/db.ts).
+// This URL is only used by `prisma migrate diff`; schema is applied via scripts/db-apply.ts.
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String
+  passwordHash String
+  createdAt    DateTime @default(now())
+  apiKeys      ApiKey[]
+  orders       Order[]
+}
+
+model ApiKey {
+  id         String    @id @default(cuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name       String
+  prefix     String
+  keyHash    String    @unique
+  lastUsedAt DateTime?
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([userId])
+}
+
+model Product {
+  id              String      @id
+  brand           String
+  unitWeightKg    Float
+  unitVolumeM3    Float
+  basis           String
+  verifiedRealSku Boolean     @default(false)
+  stock           Int         @default(1000)
+  updatedAt       DateTime    @default(now()) @updatedAt
+  items           OrderItem[]
+
+  @@index([brand])
+}
+
+model Order {
+  id            Int         @id @default(autoincrement())
+  code          String      @unique
+  status        String      @default("pending") // pending | shipped | delivered | cancelled
+  source        String      @default("ui") // seed | ui | api
+  createdById   String?
+  createdBy     User?       @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  totalWeightKg Float       @default(0)
+  totalVolumeM3 Float       @default(0)
+  createdAt     DateTime    @default(now())
+  items         OrderItem[]
+
+  @@index([status])
+  @@index([createdAt])
+}
+
+model OrderItem {
+  id        Int     @id @default(autoincrement())
+  orderId   Int
+  order     Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product @relation(fields: [productId], references: [id])
+  quantity  Int
+
+  @@index([orderId])
+  @@index([productId])
+}
