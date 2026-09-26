@@ -1,9 +1,14 @@
 node_modules
 .next
 .env
-.env.local
+.env*.local
 *.db
 *.db-journal
 next-env.d.ts
 *.tsbuildinfo
 .vercel
+
+# agent skill files installed by `vercel integration add`
+.agents/
+.claude/
+skills-lock.json

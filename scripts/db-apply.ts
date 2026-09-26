@@ -14,7 +14,7 @@ async function main() {
 
   const db = dbClient();
   await db.batch(statements, "write");
-  console.log(`Applied ${statements.length} statements to ${process.env.DATABASE_URL}`);
+  console.log(`Applied ${statements.length} statements`);
 }
 
 main().catch((e) => {

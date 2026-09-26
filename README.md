@@ -28,19 +28,21 @@ Scripts:
 ## Deploy to Vercel
 
 Vercel functions have no persistent disk, so production uses a hosted libSQL database (Turso, free tier).
+The app uses `TURSO_DATABASE_URL`/`TURSO_AUTH_TOKEN` when set, otherwise `DATABASE_URL`/`DATABASE_AUTH_TOKEN`.
 
 ```bash
-# 1. Create a database
-turso db create warehouse
-turso db show warehouse --url          # libsql://warehouse-<org>.turso.io
-turso db tokens create warehouse       # auth token
-
-# 2. Create tables + seed it from your machine
-DATABASE_URL="libsql://warehouse-<org>.turso.io" DATABASE_AUTH_TOKEN="<token>" npm run db:setup
+vercel link
+vercel integration add tursocloud/database   # creates the DB, sets TURSO_* env vars on the project
+vercel env pull .env.production.local --environment production
+# seed the remote DB from your machine (loads .env.production.local values first)
+npx dotenv -e .env.production.local -- npm run db:setup
+node -e "process.stdout.write(require('crypto').randomBytes(32).toString('hex'))" | vercel env add JWT_SECRET production
+vercel --prod
 ```
 
-3. Import the repo in Vercel and set environment variables: `DATABASE_URL`, `DATABASE_AUTH_TOKEN`, `JWT_SECRET`.
-4. Deploy. The build runs `prisma generate && next build`.
+Or manually: create a DB with the Turso CLI (`turso db create`, `turso db tokens create`), run
+`DATABASE_URL=libsql://... DATABASE_AUTH_TOKEN=... npm run db:setup`, and set `DATABASE_URL`,
+`DATABASE_AUTH_TOKEN`, `JWT_SECRET` in the Vercel project settings.
 
 ## API
 
