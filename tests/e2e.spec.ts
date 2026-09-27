@@ -32,10 +32,10 @@ async function login(page: Page, email = user.email, password = user.password, e
 
 // GETs are retried on network errors/timeouts (flaky connections to a remote deployment);
 // writes are not, since repeating them could apply twice.
-async function getWithRetry(request: APIRequestContext, url: string, key: string) {
+async function getWithRetry(request: APIRequestContext, url: string, headers: Record<string, string> = {}) {
   for (let attempt = 1; ; attempt++) {
     try {
-      return await request.get(url, { headers: { "x-api-key": key }, timeout: 20_000 });
+      return await request.get(url, { headers, timeout: 20_000 });
     } catch (e) {
       if (attempt >= 3 || !/Timeout|ECONNRESET|socket hang up|ETIMEDOUT/i.test(String(e))) throw e;
     }
@@ -43,7 +43,7 @@ async function getWithRetry(request: APIRequestContext, url: string, key: string
 }
 
 const api = (request: APIRequestContext, key = apiKey) => ({
-  get: (path: string) => getWithRetry(request, `/api/v1${path}`, key),
+  get: (path: string) => getWithRetry(request, `/api/v1${path}`, { "x-api-key": key }),
   send: (method: "POST" | "PUT" | "PATCH", path: string, data?: unknown) =>
     request.fetch(`/api/v1${path}`, { method, headers: { "x-api-key": key }, data, timeout: 45_000 }),
 });
@@ -445,14 +445,14 @@ test.describe("API keys", () => {
 
 test.describe("public API", () => {
   test("auth: missing, invalid, Bearer", async ({ request }) => {
-    let res = await request.get("/api/v1/products");
+    let res = await getWithRetry(request, "/api/v1/products");
     expect(res.status()).toBe(401);
     expect((await res.json()).error.code).toBe("unauthorized");
 
     res = await api(request, "wh_invalid").get("/products");
     expect(res.status()).toBe(401);
 
-    res = await request.get("/api/v1/products?limit=1", { headers: { Authorization: `Bearer ${apiKey}` } });
+    res = await getWithRetry(request, "/api/v1/products?limit=1", { Authorization: `Bearer ${apiKey}` });
     expect(res.status()).toBe(200);
   });
 
