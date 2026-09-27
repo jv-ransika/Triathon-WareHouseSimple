@@ -404,6 +404,7 @@ test.describe("dashboard, warehouses, products, orders UI", () => {
       "/api/v1/orders/:id",
       "/api/v1/orders/:id/confirm",
       "/api/v1/orders/:id/status",
+      "/api/v1/usage",
     ]) {
       await expect(page.locator("code", { hasText: new RegExp(`^${p.replace(/[/:]/g, "\\$&")}$`) }).first()).toBeVisible();
     }
@@ -865,6 +866,60 @@ test.describe("public API", () => {
     expect(res.status()).toBe(404);
   });
 
+  test("GET /usage: request log aggregated per endpoint, key and status", async ({ request }) => {
+    const res = await api(request).get("/usage?range=24h");
+    expect(res.status()).toBe(200);
+    const u = (await res.json()).data;
+    expect(u.range).toBe("24h");
+    expect(u.total_requests).toBeGreaterThan(30);
+    expect(u.errors).toBeGreaterThan(0); // the suite made plenty of 404/409/422 calls
+    expect(u.error_rate).toBeCloseTo(u.errors / u.total_requests, 3);
+    expect(u.series).toHaveLength(24);
+    expect(u.series.reduce((s: number, b: { total: number }) => s + b.total, 0)).toBe(u.total_requests);
+
+    const endpoints = u.by_endpoint.map((e: { endpoint: string }) => e.endpoint);
+    for (const e of [
+      "GET /api/v1/products",
+      "GET /api/v1/products/:id", // path params collapsed into the route pattern
+      "PATCH /api/v1/products/:id",
+      "POST /api/v1/products/:id/transfer",
+      "POST /api/v1/orders",
+      "POST /api/v1/orders/:id/confirm",
+      "PUT /api/v1/orders/:id/status",
+      "GET /api/v1/warehouses",
+    ]) {
+      expect(endpoints, e).toContain(e);
+    }
+    expect(u.by_key.map((k: { name: string }) => k.name)).toContain("e2e key");
+    const statuses = u.by_status.map((s: { status: number }) => s.status);
+    for (const code of [200, 201, 202, 404, 409, 422]) expect(statuses, String(code)).toContain(code);
+    expect(u.recent.length).toBeGreaterThan(0);
+    expect(u.recent.length).toBeLessThanOrEqual(20);
+    expect(u.recent[0]).toMatchObject({ key: expect.stringContaining("e2e key") });
+
+    const fallback = await (await api(request).get("/usage?range=bogus")).json();
+    expect(fallback.data.range).toBe("7d");
+    expect(fallback.data.series).toHaveLength(7);
+  });
+
+  test("API usage page shows stats, endpoints, keys and recent requests", async ({ page }) => {
+    await login(page);
+    await page.getByRole("link", { name: "API usage" }).click();
+    await expect(page).toHaveURL(/\/api-usage/);
+    await page.getByRole("link", { name: "24h", exact: true }).click();
+    await expect(page).toHaveURL(/range=24h/);
+    await expect(page.locator('[data-stat="Requests"]')).not.toHaveText("0");
+    expect(await page.locator(".chart-col").count()).toBe(24);
+    await expect(page.getByTestId("usage-by-endpoint")).toContainText("/api/v1/orders/:id/confirm");
+    await expect(page.getByTestId("usage-by-key")).toContainText("e2e key");
+    await expect(page.getByTestId("usage-by-status")).toContainText("422");
+    await expect(page.getByTestId("usage-recent").locator("tbody tr").first()).toContainText("e2e key");
+
+    await page.goto("/api-keys");
+    const count = await page.locator("tbody tr", { hasText: "e2e key" }).locator("td").nth(4).textContent();
+    expect(Number(count!.replace(/\D/g, ""))).toBeGreaterThan(30);
+  });
+
   test("API key usage is recorded; revoke blocks; delete removes", async ({ page, request }) => {
     await login(page);
     await page.goto("/api-keys");
@@ -875,6 +930,12 @@ test.describe("public API", () => {
     await expect(row).toContainText("revoked");
     const res = await api(request).get("/products?limit=1");
     expect(res.status()).toBe(401);
+
+    // the rejected call is still attributed to the owner on the usage page
+    await page.goto("/api-usage?range=24h");
+    await expect(page.locator('[data-stat="Rejected (401)"]')).toHaveText("1");
+    await expect(page.getByTestId("usage-by-key")).toContainText("revoked");
+    await page.goto("/api-keys");
 
     await row.getByRole("button", { name: "Delete" }).click();
     await expect(page.getByText("No API keys yet.")).toBeVisible();

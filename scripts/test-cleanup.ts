@@ -1,5 +1,5 @@
-// Removes data created by the e2e suite: users e2e-*@test.local, their API keys and
-// orders. Stock their orders took (or locked) is returned to each order's warehouse first.
+// Removes data created by the e2e suite: users e2e-*@test.local, their API keys, API
+// usage logs and orders. Stock their orders took (or locked) is returned to each order's warehouse first.
 import type { InStatement } from "@libsql/client";
 import { dbClient } from "./libsql";
 
@@ -31,6 +31,7 @@ async function main() {
       ...restock,
       { sql: `DELETE FROM "OrderItem" WHERE orderId IN (SELECT id FROM "Order" WHERE createdById IN (${inList}))`, args: ids },
       { sql: `DELETE FROM "Order" WHERE createdById IN (${inList})`, args: ids },
+      { sql: `DELETE FROM "ApiRequest" WHERE userId IN (${inList})`, args: ids },
       { sql: `DELETE FROM "ApiKey" WHERE userId IN (${inList})`, args: ids },
       { sql: `DELETE FROM "User" WHERE id IN (${inList})`, args: ids },
     ],

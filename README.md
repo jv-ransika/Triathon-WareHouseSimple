@@ -102,9 +102,11 @@ Requires the Vercel CLI (`npm i -g vercel`), logged in with `vercel login`.
 vercel link                                   # create/link the Vercel project
 vercel integration add tursocloud/database    # create a Turso DB and set TURSO_* on the project
 
-# Load the CSVs into the Turso DB from your machine
-vercel env pull .env.production.local --environment production
-npx dotenv -e .env.production.local -- npm run db:setup
+# Load the CSVs into the Turso DB from your machine.
+# Keep the pulled file inside .vercel/ (gitignored). A .env.production.local in the project root
+# would be loaded by `next build`/`next start`, and local runs would then use the production DB.
+vercel env pull .vercel/.env.production.local --environment production
+npx dotenv -e .vercel/.env.production.local -- npm run db:setup
 
 # Session secret (repeat with "preview" if you use preview deployments)
 node -e "process.stdout.write(require('crypto').randomBytes(32).toString('hex'))" | vercel env add JWT_SECRET production
@@ -118,7 +120,7 @@ Loading the data into Turso takes about 2 minutes. The scripts retry if the conn
 
 > **Warning:** running `db:seed`, `db:setup` or `db:reset` against production deletes every order, including real ones, and resets all stock to 1000 per warehouse.
 
-**Changing the schema on production:** `db:apply` only creates missing tables; it doesn't alter existing ones. After changing `prisma/schema.prisma`, run `npm run db:sql`. Then run `npx dotenv -e .env.production.local -- npm run db:reset` **before** pushing, so the database matches the new code.
+**Changing the schema on production:** `db:apply` only creates missing tables; it doesn't alter existing ones. After changing `prisma/schema.prisma`, run `npm run db:sql`. Then run `npx dotenv -e .vercel/.env.production.local -- npm run db:reset` **before** pushing, so the database matches the new code.
 
 ## Stock locking
 
@@ -226,9 +228,9 @@ npm run test:cleanup    # removes e2e-*@test.local users, their keys and orders,
 The expiry test moves a reservation's deadline into the past directly in the database. Locally it uses `.env`. Against a deployed site it needs that site's database settings, and it is skipped without them:
 
 ```bash
-vercel env pull .env.production.local --environment production
-BASE_URL=https://triathon-warehouse-simple.vercel.app npx dotenv -e .env.production.local -- npm run test:e2e
-npx dotenv -e .env.production.local -- npm run test:cleanup
+vercel env pull .vercel/.env.production.local --environment production
+BASE_URL=https://triathon-warehouse-simple.vercel.app npx dotenv -e .vercel/.env.production.local -- npm run test:e2e
+npx dotenv -e .vercel/.env.production.local -- npm run test:cleanup
 ```
 
 > **Warning:** running the suite against a deployed site writes to its database. It temporarily changes the stock of `C32_STYLE_010`, `C32_STYLE_011`, `C32_TECH_050` and `C32_FRESH_020` and adds test orders. Run `test:cleanup` afterwards.

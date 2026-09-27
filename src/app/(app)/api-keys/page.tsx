@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { PageHeader, fmtDate } from "@/components/ui";
+import { requestCountsByKey } from "@/lib/usage";
+import { PageHeader, fmt, fmtDate } from "@/components/ui";
 import { deleteApiKeyAction, revokeApiKeyAction } from "../actions";
 import CreateKeyForm from "./CreateKeyForm";
 
@@ -9,14 +10,22 @@ export const dynamic = "force-dynamic";
 
 export default async function ApiKeysPage() {
   const user = await requireUser();
-  const keys = await prisma.apiKey.findMany({ where: { userId: user.id }, orderBy: { createdAt: "desc" } });
+  const [keys, counts] = await Promise.all([
+    prisma.apiKey.findMany({ where: { userId: user.id }, orderBy: { createdAt: "desc" } }),
+    requestCountsByKey(user.id, 7),
+  ]);
 
   return (
     <>
       <PageHeader
         title="API keys"
         subtitle="Keys authenticate requests to the public API. Each key is shown only once."
-        action={<Link className="link text-sm" href="/docs">API docs →</Link>}
+        action={
+          <div className="flex gap-4 text-sm">
+            <Link className="link" href="/api-usage">Usage →</Link>
+            <Link className="link" href="/docs">API docs →</Link>
+          </div>
+        }
       />
       <CreateKeyForm />
 
@@ -28,6 +37,7 @@ export default async function ApiKeysPage() {
               <th>Key</th>
               <th>Created</th>
               <th>Last used</th>
+              <th className="num">Requests (7d)</th>
               <th>Status</th>
               <th />
             </tr>
@@ -39,6 +49,7 @@ export default async function ApiKeysPage() {
                 <td className="mono">{k.prefix}…</td>
                 <td className="muted">{fmtDate(k.createdAt)}</td>
                 <td className="muted">{k.lastUsedAt ? fmtDate(k.lastUsedAt) : "Never"}</td>
+                <td className="num">{fmt(counts.get(k.id) ?? 0)}</td>
                 <td>
                   <span className="badge">
                     <span className="dot" style={{ background: k.revokedAt ? "var(--bad)" : "var(--good)" }} />
@@ -55,7 +66,7 @@ export default async function ApiKeysPage() {
             ))}
             {keys.length === 0 && (
               <tr>
-                <td colSpan={6} className="muted">No API keys yet.</td>
+                <td colSpan={7} className="muted">No API keys yet.</td>
               </tr>
             )}
           </tbody>

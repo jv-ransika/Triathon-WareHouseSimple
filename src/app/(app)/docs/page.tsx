@@ -12,6 +12,17 @@ export default async function DocsPage() {
   const endpoints: Endpoint[] = [
     {
       method: "GET",
+      path: "/api/v1/usage",
+      desc:
+        "Usage of all API keys owned by the caller: totals, error rate, latency, requests per hour/day, per endpoint, per key, per status and the 20 most recent requests. Query: range (24h|7d|30d, default 7d). The same data is on the API usage page.",
+      example: `curl ${K} "${base}/api/v1/usage?range=24h"`,
+      response: `{ "data": { "range": "24h", "total_requests": 128, "errors": 3, "unauthorized": 1, "error_rate": 0.0234,
+    "avg_ms": 84, "max_ms": 912, "series": [{ "bucket": "2026-09-28T10", "total": 12, "errors": 0 }, ...],
+    "by_endpoint": [{ "endpoint": "GET /api/v1/products", "requests": 80, "errors": 0, "avg_ms": 60, "max_ms": 300 }, ...],
+    "by_key": [...], "by_status": [{ "status": 200, "total": 120 }, ...], "recent": [...] } }`,
+    },
+    {
+      method: "GET",
       path: "/api/v1/warehouses",
       desc: "List warehouses with units available, units locked and order counts by status.",
       example: `curl ${K} ${base}/api/v1/warehouses`,

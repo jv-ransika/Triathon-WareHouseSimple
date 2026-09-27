@@ -21,6 +21,21 @@ CREATE TABLE "ApiKey" (
 );
 
 -- CreateTable
+CREATE TABLE "ApiRequest" (
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "apiKeyId" TEXT,
+    "userId" TEXT,
+    "method" TEXT NOT NULL,
+    "route" TEXT NOT NULL,
+    "path" TEXT NOT NULL,
+    "status" INTEGER NOT NULL,
+    "durationMs" INTEGER NOT NULL,
+    "ip" TEXT,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "ApiRequest_apiKeyId_fkey" FOREIGN KEY ("apiKeyId") REFERENCES "ApiKey" ("id") ON DELETE SET NULL ON UPDATE CASCADE
+);
+
+-- CreateTable
 CREATE TABLE "Warehouse" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "name" TEXT NOT NULL,
@@ -86,6 +101,15 @@ CREATE UNIQUE INDEX "ApiKey_keyHash_key" ON "ApiKey"("keyHash");
 
 -- CreateIndex
 CREATE INDEX "ApiKey_userId_idx" ON "ApiKey"("userId");
+
+-- CreateIndex
+CREATE INDEX "ApiRequest_createdAt_idx" ON "ApiRequest"("createdAt");
+
+-- CreateIndex
+CREATE INDEX "ApiRequest_userId_createdAt_idx" ON "ApiRequest"("userId", "createdAt");
+
+-- CreateIndex
+CREATE INDEX "ApiRequest_apiKeyId_createdAt_idx" ON "ApiRequest"("apiKeyId", "createdAt");
 
 -- CreateIndex
 CREATE INDEX "Product_brand_idx" ON "Product"("brand");

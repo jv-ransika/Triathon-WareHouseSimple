@@ -8,6 +8,7 @@ const LINKS = [
   { href: "/products", label: "Products" },
   { href: "/orders", label: "Orders" },
   { href: "/api-keys", label: "API keys" },
+  { href: "/api-usage", label: "API usage" },
   { href: "/docs", label: "API docs" },
 ];
 

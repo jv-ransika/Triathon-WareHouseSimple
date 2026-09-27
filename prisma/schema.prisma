@@ -20,17 +20,38 @@ model User {
 }
 
 model ApiKey {
-  id         String    @id @default(cuid())
+  id         String       @id @default(cuid())
   userId     String
-  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user       User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   name       String
   prefix     String
-  keyHash    String    @unique
+  keyHash    String       @unique
   lastUsedAt DateTime?
   revokedAt  DateTime?
-  createdAt  DateTime  @default(now())
+  createdAt  DateTime     @default(now())
+  requests   ApiRequest[]
 
   @@index([userId])
+}
+
+// One row per public API request (including rejected ones), for usage monitoring.
+// userId is kept even if the key is deleted so the owner still sees its history.
+model ApiRequest {
+  id         Int      @id @default(autoincrement())
+  apiKeyId   String?
+  apiKey     ApiKey?  @relation(fields: [apiKeyId], references: [id], onDelete: SetNull)
+  userId     String?
+  method     String
+  route      String // pattern, e.g. /api/v1/orders/:id
+  path       String // actual path, e.g. /api/v1/orders/ORD0000001
+  status     Int
+  durationMs Int
+  ip         String?
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([userId, createdAt])
+  @@index([apiKeyId, createdAt])
 }
 
 model Warehouse {
