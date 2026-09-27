@@ -1,17 +1,21 @@
 import Link from "next/link";
 
 const STATUS_COLOR: Record<string, string> = {
-  pending: "var(--warn)",
+  reserved: "var(--warn)",
+  pending: "var(--accent)",
   shipped: "var(--accent)",
   delivered: "var(--good)",
   cancelled: "var(--bad)",
+  expired: "var(--muted)",
 };
+
+const STATUS_LABEL: Record<string, string> = { reserved: "awaiting confirmation" };
 
 export function StatusBadge({ status }: { status: string }) {
   return (
     <span className="badge">
       <span className="dot" style={{ background: STATUS_COLOR[status] ?? "var(--muted)" }} />
-      {status}
+      {STATUS_LABEL[status] ?? status}
     </span>
   );
 }

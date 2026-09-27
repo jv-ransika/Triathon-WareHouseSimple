@@ -1,6 +1,8 @@
 import Link from "next/link";
-import { ORDER_STATUSES } from "@/lib/orders";
+import { ORDER_STATUSES, releaseExpiredReservations } from "@/lib/orders";
 import { listOrders } from "@/lib/queries";
+import { getSelectedWarehouse } from "@/lib/warehouseScope";
+import { warehouseName } from "@/lib/warehouses";
 import { PageHeader, Pager, StatusBadge, fmt, fmtDate } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
@@ -12,18 +14,24 @@ export default async function OrdersPage({ searchParams }: { searchParams: SP })
   const sp = await searchParams;
   const page = Math.max(1, Number(sp.page) || 1);
   const status = (ORDER_STATUSES as readonly string[]).includes(sp.status ?? "") ? sp.status : undefined;
-  const { total, items } = await listOrders({ status, q: sp.q, skip: (page - 1) * LIMIT, limit: LIMIT });
+  const wh = await getSelectedWarehouse();
+  await releaseExpiredReservations();
+  const { total, items } = await listOrders({ status, q: sp.q, warehouse: wh, skip: (page - 1) * LIMIT, limit: LIMIT });
 
   return (
     <>
-      <PageHeader title="Orders" action={<Link className="btn" href="/orders/new">New order</Link>} />
+      <PageHeader
+        title="Orders"
+        subtitle={wh ? `${warehouseName(wh)} warehouse` : "All warehouses"}
+        action={<Link className="btn" href="/orders/new">New order</Link>}
+      />
 
       <form className="flex flex-wrap gap-2 mb-3" method="get">
         <input className="input" style={{ maxWidth: 240 }} name="q" placeholder="Search order ID" defaultValue={sp.q} />
         <select className="input" style={{ maxWidth: 160 }} name="status" defaultValue={status ?? ""}>
           <option value="">All statuses</option>
           {ORDER_STATUSES.map((s) => (
-            <option key={s}>{s}</option>
+            <option key={s} value={s}>{s === "reserved" ? "awaiting confirmation" : s}</option>
           ))}
         </select>
         <button className="btn btn-ghost">Filter</button>
@@ -34,6 +42,7 @@ export default async function OrdersPage({ searchParams }: { searchParams: SP })
           <thead>
             <tr>
               <th>Order</th>
+              <th>Warehouse</th>
               <th>Status</th>
               <th>Source</th>
               <th className="num">Lines</th>
@@ -46,6 +55,7 @@ export default async function OrdersPage({ searchParams }: { searchParams: SP })
             {items.map((o) => (
               <tr key={o.id}>
                 <td><Link className="link mono" href={`/orders/${o.code}`}>{o.code}</Link></td>
+                <td>{warehouseName(o.warehouseId)}</td>
                 <td><StatusBadge status={o.status} /></td>
                 <td className="muted">{o.source}</td>
                 <td className="num">{o._count.items}</td>
@@ -56,7 +66,7 @@ export default async function OrdersPage({ searchParams }: { searchParams: SP })
             ))}
             {items.length === 0 && (
               <tr>
-                <td colSpan={7} className="muted">No orders match.</td>
+                <td colSpan={8} className="muted">No orders match.</td>
               </tr>
             )}
           </tbody>

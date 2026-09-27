@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 import { apiError, readJson, withApiKey } from "@/lib/api";
-import { prisma } from "@/lib/db";
-import { setProductStock } from "@/lib/orders";
-import { productJson } from "@/lib/queries";
+import { releaseExpiredReservations, setProductStock } from "@/lib/orders";
+import { getProduct, productJson } from "@/lib/queries";
 
 export const GET = withApiKey<{ id: string }>(async (_req, _auth, { id }) => {
-  const product = await prisma.product.findUnique({ where: { id } });
+  await releaseExpiredReservations();
+  const product = await getProduct(id);
   if (!product) return apiError(404, "product_not_found", `Product ${id} not found`);
   return NextResponse.json({ data: productJson(product) });
 });

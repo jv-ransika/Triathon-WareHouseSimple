@@ -12,7 +12,8 @@
     "db:seed": "tsx prisma/seed.ts",
     "db:setup": "npm run db:apply && npm run db:seed",
     "test:e2e": "playwright test",
-    "test:cleanup": "tsx scripts/test-cleanup.ts"
+    "test:cleanup": "tsx scripts/test-cleanup.ts",
+    "db:reset": "tsx scripts/db-apply.ts --reset-data && npm run db:seed"
   },
   "dependencies": {
     "@libsql/client": "^0.18.0",

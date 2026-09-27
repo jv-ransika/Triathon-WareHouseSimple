@@ -1,6 +1,6 @@
 # Warehouse Simple
 
-A small warehouse app with a web dashboard, one-role email/password accounts, and a REST API authenticated by API keys that each user manages.
+A small warehouse app for two warehouses, **Kandy (`KDY`)** and **Peliyagoda (`PLG`)**. It has a web dashboard, one-role email/password accounts, and a REST API authenticated by API keys that each user manages.
 
 **Live:** https://triathon-warehouse-simple.vercel.app (demo login `demo@warehouse.local` / `demo1234`)
 
@@ -11,9 +11,11 @@ A small warehouse app with a web dashboard, one-role email/password accounts, an
 ## Features
 
 - **Auth:** register, log in and log out. Passwords are hashed with bcrypt; sessions are JWTs in an httpOnly cookie that lasts 7 days.
-- **Dashboard:** totals, orders per month, units ordered by brand, top products, recent orders and low-stock products (under 50 units).
-- **Products:** search, filter by brand, sort by stock, and edit stock inline.
-- **Orders:** list with status filter and search; order detail with status changes; a form to place new orders.
+- **Warehouse switcher:** the sidebar picks Kandy, Peliyagoda or All warehouses. The dashboard, orders list, product sorting and the default warehouse for new orders follow it.
+- **Dashboard:** units available and locked, orders, orders awaiting confirmation, orders per month, units ordered by brand, top products, recent orders and low-stock rows (under 50 units). With All selected it also shows a tile per warehouse.
+- **Products:** stock per warehouse, with each warehouse's number editable inline. Transfer units between warehouses. Search, filter by brand, sort by stock, show low stock only.
+- **Orders:** every order belongs to one warehouse and takes stock from that warehouse only. List with status filter and search, order detail with status changes, and a form to place new orders.
+- **Stock locking:** if the chosen warehouse can't cover an order, the units it does have are locked for that order until you confirm the partial order or cancel. See [Stock locking](#stock-locking).
 - **API keys:** create, revoke and delete your own keys. A key is shown once and only its SHA-256 hash is stored.
 - **API docs:** `/docs` in the app has curl examples for every endpoint.
 
@@ -28,9 +30,11 @@ The database is seeded from the two CSV files in the repo root:
 | `products.csv` | 280 products | `Product` table (brands: Fresh, Style, Tech) |
 | `order_products.csv` | 194,366 order lines | 97,321 orders in `Order` + `OrderItem` |
 
-The CSVs have no stock levels or order dates, so the seed fills these in:
+The CSVs have no warehouses, stock levels or order dates, so the seed fills these in:
 
-- Every product starts with 1000 units in stock.
+- Two warehouses: `KDY` Kandy and `PLG` Peliyagoda.
+- Every product starts with 1000 units in **each** warehouse (`Stock` table, 560 rows).
+- Seeded orders alternate by order number: odd numbers are Kandy (48,665 orders), even numbers are Peliyagoda (48,656).
 - Seeded orders are marked `delivered`, have source `seed`, and don't reduce stock.
 - Seeded order dates are spread evenly over the year before the seed ran, so the monthly chart has data.
 - Order numbers in the CSV go up to `ORD0097345` with gaps; new orders continue from there.
@@ -63,8 +67,9 @@ The seed creates the demo user `demo@warehouse.local` / `demo1234` if it doesn't
 | `npm run dev` | Start the dev server |
 | `npm run build` | `prisma generate` + production build |
 | `npm run db:apply` | Create tables from `prisma/init.sql`. Safe to re-run. |
-| `npm run db:seed` | **Deletes all products and orders** and reloads them from the CSVs. Users and API keys are kept. |
+| `npm run db:seed` | **Deletes all warehouses, products, stock and orders** and reloads them from the CSVs. Users and API keys are kept. |
 | `npm run db:setup` | `db:apply` then `db:seed` |
+| `npm run db:reset` | **Drops** the warehouse, product, stock and order tables, recreates them from `prisma/init.sql`, then seeds. Use after a schema change. Users and API keys are kept. |
 | `npm run db:sql` | Regenerate `prisma/init.sql` after editing `prisma/schema.prisma` |
 
 ## Environment variables
@@ -75,6 +80,7 @@ The seed creates the demo user `demo@warehouse.local` / `demo1234` if it doesn't
 | `DATABASE_URL` | Local / manual setup | `file:./dev.db` locally, or a `libsql://…` URL |
 | `DATABASE_AUTH_TOKEN` | Manual Turso setup | Turso auth token |
 | `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN` | Set automatically by the Vercel Turso integration | Used instead of `DATABASE_*` when present |
+| `RESERVATION_MINUTES` | Optional | How long stock stays locked for an order awaiting confirmation. Default 15. |
 
 ## Deployment (Vercel + Turso)
 
@@ -110,7 +116,27 @@ Loading the data into Turso takes about 2 minutes. The scripts retry if the conn
 
 **Without the marketplace integration:** create a database with the Turso CLI (`turso db create`, `turso db show --url`, `turso db tokens create`). Then run `DATABASE_URL=libsql://… DATABASE_AUTH_TOKEN=… npm run db:setup`, and set `DATABASE_URL`, `DATABASE_AUTH_TOKEN` and `JWT_SECRET` in the Vercel project settings.
 
-> **Warning:** running `db:seed` (or `db:setup`) against production deletes every order, including real ones, and resets all stock to 1000.
+> **Warning:** running `db:seed`, `db:setup` or `db:reset` against production deletes every order, including real ones, and resets all stock to 1000 per warehouse.
+
+**Changing the schema on production:** `db:apply` only creates missing tables; it doesn't alter existing ones. After changing `prisma/schema.prisma`, run `npm run db:sql`. Then run `npx dotenv -e .env.production.local -- npm run db:reset` **before** pushing, so the database matches the new code.
+
+## Stock locking
+
+When you place an order, the chosen warehouse is checked line by line:
+
+| Situation | Result |
+|---|---|
+| Every line is available | Stock is taken. Order status `pending`. API returns **201**. |
+| Some lines are short | The units that *are* available are **locked** for this order: they move from `available` to `reserved` so no one else can take them. Order status `reserved` (shown as "awaiting confirmation"), with an `expires_at` 15 minutes ahead. API returns **202** with a `shortfall` list that includes what the other warehouse has. |
+| Nothing is available | Nothing is locked. API returns **409** `insufficient_stock`. |
+
+A `reserved` order then ends in one of three ways:
+
+- **Confirm** (UI button, `POST /orders/:id/confirm`, or status `pending`): the order becomes `pending` with the locked quantities. `quantity` shows what it got and `requested_quantity` what was asked for.
+- **Cancel** (status `cancelled`): the locked units go back to available.
+- **Expire:** after `expires_at` the order becomes `expired` and the units go back. There's no cron job. Expiry is applied the next time anyone reads or changes stock or orders.
+
+To fill the rest, transfer units from the other warehouse on the Products page (or `POST /products/:id/transfer`) and place another order.
 
 ## API
 
@@ -118,34 +144,48 @@ Base URL: `https://triathon-warehouse-simple.vercel.app/api/v1`
 
 Create a key on the **API keys** page, then send it as `x-api-key: <key>` or `Authorization: Bearer <key>`.
 
+Wherever a warehouse is expected you can pass the code (`KDY`, `PLG`) or the name (`kandy`, `peliyagoda`), case-insensitive.
+
 | Method | Path | Description |
 |---|---|---|
-| GET | `/products?brand=&q=&page=&limit=` | List products. `brand` is Fresh, Style or Tech; `q` searches the product ID; `limit` is at most 100. |
+| GET | `/warehouses` | Both warehouses with units available, units locked and order counts by status |
+| GET | `/products?warehouse=&brand=&q=&sort=stock&low_stock=true&page=&limit=` | List products with stock per warehouse. `warehouse` picks which warehouse `sort` and `low_stock` look at; without it they use the total and the lowest warehouse. `limit` is at most 100. |
 | GET | `/products/:id` | One product |
-| PATCH | `/products/:id` | Set stock with `{ "stock": n }` or change it with `{ "adjust": ±n }` |
-| GET | `/orders?status=&page=&limit=` | List orders, newest first |
-| GET | `/orders/:id` | One order with its items. `:id` is the order code, e.g. `ORD0000001`. |
-| POST | `/orders` | Place an order: `{ "items": [{ "product_id": "C32_TECH_001", "quantity": 2 }] }` |
+| PATCH | `/products/:id` | `{ "warehouse": "KDY", "stock": n }` sets or `{ "warehouse": "KDY", "adjust": ±n }` changes available stock in one warehouse |
+| POST | `/products/:id/transfer` | `{ "from": "KDY", "to": "PLG", "quantity": n }` moves available units between warehouses |
+| GET | `/orders?warehouse=&status=&page=&limit=` | List orders, newest first |
+| GET | `/orders/:id` | One order with its items (`:id` is the order code, e.g. `ORD0000001`). Reserved orders include `shortfall`. |
+| POST | `/orders` | `{ "warehouse": "KDY", "items": [{ "product_id": "C32_TECH_001", "quantity": 2 }] }`. Returns 201, 202 or 409 (see [Stock locking](#stock-locking)). |
+| POST | `/orders/:id/confirm` | Accept a reserved order |
 | PUT | `/orders/:id/status` | Change status: `{ "status": "shipped" }` |
 
-Placing an order reduces stock. If any line doesn't have enough stock, the whole order is rejected.
+Product stock looks like:
+
+```json
+"stock": { "KDY": { "available": 995, "reserved": 5 }, "PLG": { "available": 1000, "reserved": 0 } },
+"total_available": 1995, "total_reserved": 5
+```
 
 Allowed status changes:
 
+- `reserved` to `pending` (confirm) or `cancelled`. It becomes `expired` automatically.
 - `pending` to `shipped` or `cancelled`
 - `shipped` to `delivered`
 
-Cancelling an order puts its units back in stock.
+Cancelling returns the units to the order's own warehouse.
 
 ### Example
 
 ```bash
 export WH_KEY=wh_xxxxxxxx
-curl -H "x-api-key: $WH_KEY" "https://triathon-warehouse-simple.vercel.app/api/v1/products?brand=Tech&limit=5"
+curl -H "x-api-key: $WH_KEY" "https://triathon-warehouse-simple.vercel.app/api/v1/products?warehouse=KDY&sort=stock&limit=5"
 
 curl -X POST -H "x-api-key: $WH_KEY" -H "Content-Type: application/json" \
-  -d '{"items":[{"product_id":"C32_TECH_001","quantity":2}]}' \
+  -d '{"warehouse":"PLG","items":[{"product_id":"C32_TECH_001","quantity":2}]}' \
   https://triathon-warehouse-simple.vercel.app/api/v1/orders
+
+# if that returned 202 (partially available):
+curl -X POST -H "x-api-key: $WH_KEY" https://triathon-warehouse-simple.vercel.app/api/v1/orders/ORD0097350/confirm
 ```
 
 ### Errors
@@ -157,16 +197,21 @@ Errors look like `{ "error": { "code": "...", "message": "..." } }`.
 | 400 | `invalid_json` | Body isn't valid JSON |
 | 401 | `unauthorized` | Key is missing, invalid or revoked |
 | 404 | `product_not_found`, `order_not_found` | Unknown product or order |
-| 409 | `insufficient_stock`, `invalid_transition` | Not enough stock, or a status change that isn't allowed |
-| 422 | `validation_error` | Body has the wrong shape |
+| 409 | `insufficient_stock` | Nothing available in that warehouse, stock would go below 0, or a transfer source is short |
+| 409 | `invalid_transition` | Status change that isn't allowed, or confirming an order that isn't reserved |
+| 409 | `reservation_expired` | Confirming after the lock ran out |
+| 409 | `stock_changed` | Another order took the same units at the same moment; retry |
+| 422 | `validation_error` | Body has the wrong shape, or a missing or unknown warehouse |
 
 ## Testing
 
-`tests/e2e.spec.ts` is a Playwright suite (27 tests) that drives the UI in Chrome and calls every API endpoint. It covers:
+`tests/e2e.spec.ts` is a Playwright suite (37 tests) that drives the UI in Chrome and calls every API endpoint. It covers:
 
 - **Auth:** register, validation, login, logout and redirects
-- **UI:** dashboard, product search, filters and stock editing, and the order form
-- **Orders:** status changes, and stock being taken and returned
+- **Warehouses:** the switcher scoping the dashboard and orders, per-warehouse stock editing, and transfers
+- **UI:** dashboard, product search, filters, sorting and paging, and the order form
+- **Orders:** an order takes stock only from its own warehouse, status changes, and cancel returning stock to the right warehouse
+- **Stock locking:** partial orders lock stock, locked units can't be taken by others, and confirm, cancel and expiry all work
 - **API keys:** creating, revoking and deleting keys
 - **API:** every endpoint and error case
 
@@ -178,14 +223,15 @@ npm run test:e2e        # starts `next start` on port 3100 against the local dev
 npm run test:cleanup    # removes e2e-*@test.local users, their keys and orders, and returns their stock
 ```
 
-To run it against a deployed site:
+The expiry test moves a reservation's deadline into the past directly in the database. Locally it uses `.env`. Against a deployed site it needs that site's database settings, and it is skipped without them:
 
 ```bash
-BASE_URL=https://triathon-warehouse-simple.vercel.app npm run test:e2e
+vercel env pull .env.production.local --environment production
+BASE_URL=https://triathon-warehouse-simple.vercel.app npx dotenv -e .env.production.local -- npm run test:e2e
 npx dotenv -e .env.production.local -- npm run test:cleanup
 ```
 
-> **Warning:** running the suite against a deployed site writes to its database. It temporarily changes the stock of `C32_STYLE_010`, `C32_TECH_050` and `C32_FRESH_020` and adds test orders. Run `test:cleanup` afterwards.
+> **Warning:** running the suite against a deployed site writes to its database. It temporarily changes the stock of `C32_STYLE_010`, `C32_STYLE_011`, `C32_TECH_050` and `C32_FRESH_020` and adds test orders. Run `test:cleanup` afterwards.
 
 ## Project layout
 
@@ -194,7 +240,9 @@ prisma/schema.prisma         data model
 prisma/init.sql              generated schema SQL (applied by scripts/db-apply.ts)
 prisma/seed.ts               CSV import
 scripts/                     DB apply script and shared libSQL client
-src/lib/orders.ts            order creation, stock and status rules (used by the UI and the API)
+src/lib/orders.ts            orders, stock locking, confirm/expiry, stock edits and transfers (used by the UI and the API)
+src/lib/warehouses.ts        warehouse codes and names
+src/lib/warehouseScope.ts    reads the sidebar warehouse switcher cookie
 src/lib/apiKey.ts            key generation and authentication
 src/lib/auth.ts, session.ts  passwords and session cookie
 src/app/api/v1/              public REST API

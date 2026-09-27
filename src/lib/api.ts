@@ -2,6 +2,7 @@ import "server-only";
 import { NextResponse } from "next/server";
 import { authenticateApiKey } from "./apiKey";
 import { AppError } from "./errors";
+import { parseWarehouse, resolveWarehouse, type WarehouseCode } from "./warehouses";
 
 export function apiError(status: number, code: string, message: string, details?: unknown) {
   return NextResponse.json({ error: { code, message, ...(details ? { details } : {}) } }, { status });
@@ -37,4 +38,11 @@ export function pageParams(url: URL) {
   const page = Math.max(1, Number(url.searchParams.get("page")) || 1);
   const limit = Math.min(100, Math.max(1, Number(url.searchParams.get("limit")) || 20));
   return { page, limit, skip: (page - 1) * limit };
+}
+
+/** Optional ?warehouse= filter: null when absent, 422 when present but unknown. */
+export function warehouseParam(url: URL): WarehouseCode | null {
+  const raw = url.searchParams.get("warehouse");
+  if (!raw) return null;
+  return parseWarehouse(raw) ?? resolveWarehouse(raw);
 }

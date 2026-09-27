@@ -21,6 +21,13 @@ CREATE TABLE "ApiKey" (
 );
 
 -- CreateTable
+CREATE TABLE "Warehouse" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "name" TEXT NOT NULL,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- CreateTable
 CREATE TABLE "Product" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "brand" TEXT NOT NULL,
@@ -28,8 +35,20 @@ CREATE TABLE "Product" (
     "unitVolumeM3" REAL NOT NULL,
     "basis" TEXT NOT NULL,
     "verifiedRealSku" BOOLEAN NOT NULL DEFAULT false,
-    "stock" INTEGER NOT NULL DEFAULT 1000,
     "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- CreateTable
+CREATE TABLE "Stock" (
+    "warehouseId" TEXT NOT NULL,
+    "productId" TEXT NOT NULL,
+    "quantity" INTEGER NOT NULL DEFAULT 0,
+    "reserved" INTEGER NOT NULL DEFAULT 0,
+    "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY ("warehouseId", "productId"),
+    CONSTRAINT "Stock_warehouseId_fkey" FOREIGN KEY ("warehouseId") REFERENCES "Warehouse" ("id") ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT "Stock_productId_fkey" FOREIGN KEY ("productId") REFERENCES "Product" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
 );
 
 -- CreateTable
@@ -38,10 +57,13 @@ CREATE TABLE "Order" (
     "code" TEXT NOT NULL,
     "status" TEXT NOT NULL DEFAULT 'pending',
     "source" TEXT NOT NULL DEFAULT 'ui',
+    "warehouseId" TEXT NOT NULL,
+    "expiresAt" DATETIME,
     "createdById" TEXT,
     "totalWeightKg" REAL NOT NULL DEFAULT 0,
     "totalVolumeM3" REAL NOT NULL DEFAULT 0,
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "Order_warehouseId_fkey" FOREIGN KEY ("warehouseId") REFERENCES "Warehouse" ("id") ON DELETE RESTRICT ON UPDATE CASCADE,
     CONSTRAINT "Order_createdById_fkey" FOREIGN KEY ("createdById") REFERENCES "User" ("id") ON DELETE SET NULL ON UPDATE CASCADE
 );
 
@@ -51,6 +73,7 @@ CREATE TABLE "OrderItem" (
     "orderId" INTEGER NOT NULL,
     "productId" TEXT NOT NULL,
     "quantity" INTEGER NOT NULL,
+    "requestedQuantity" INTEGER NOT NULL,
     CONSTRAINT "OrderItem_orderId_fkey" FOREIGN KEY ("orderId") REFERENCES "Order" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
     CONSTRAINT "OrderItem_productId_fkey" FOREIGN KEY ("productId") REFERENCES "Product" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
 );
@@ -68,6 +91,9 @@ CREATE INDEX "ApiKey_userId_idx" ON "ApiKey"("userId");
 CREATE INDEX "Product_brand_idx" ON "Product"("brand");
 
 -- CreateIndex
+CREATE INDEX "Stock_productId_idx" ON "Stock"("productId");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "Order_code_key" ON "Order"("code");
 
 -- CreateIndex
@@ -75,6 +101,15 @@ CREATE INDEX "Order_status_idx" ON "Order"("status");
 
 -- CreateIndex
 CREATE INDEX "Order_createdAt_idx" ON "Order"("createdAt");
+
+-- CreateIndex
+CREATE INDEX "Order_warehouseId_status_idx" ON "Order"("warehouseId", "status");
+
+-- CreateIndex
+CREATE INDEX "Order_warehouseId_createdAt_idx" ON "Order"("warehouseId", "createdAt");
+
+-- CreateIndex
+CREATE INDEX "Order_status_expiresAt_idx" ON "Order"("status", "expiresAt");
 
 -- CreateIndex
 CREATE INDEX "OrderItem_orderId_idx" ON "OrderItem"("orderId");

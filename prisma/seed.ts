@@ -1,5 +1,7 @@
-// Seeds products + historical orders from the CSV files. Re-runnable: wipes
-// Product/Order/OrderItem first, never touches User/ApiKey (except demo user).
+// Seeds warehouses, products, per-warehouse stock and historical orders from the
+// CSV files. Re-runnable: wipes those tables first, never touches User/ApiKey
+// (except creating the demo user). Historical orders alternate by order number:
+// odd -> Kandy (KDY), even -> Peliyagoda (PLG).
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parse } from "csv-parse/sync";
@@ -8,7 +10,11 @@ import type { InStatement, InValue } from "@libsql/client";
 import { dbClient } from "../scripts/libsql";
 
 const CHUNK = 500;
-const DEFAULT_STOCK = 1000;
+const DEFAULT_STOCK = 1000; // per product, per warehouse
+const WAREHOUSES = [
+  ["KDY", "Kandy"],
+  ["PLG", "Peliyagoda"],
+] as const;
 const root = process.cwd();
 
 type ProductRow = {
@@ -68,8 +74,13 @@ async function main() {
   }
   if (skipped) console.warn(`Skipped ${skipped} lines with unknown product or bad quantity`);
 
-  console.log("Clearing existing products/orders…");
-  await db.batch(['DELETE FROM "OrderItem"', 'DELETE FROM "Order"', 'DELETE FROM "Product"'], "write");
+  console.log("Clearing existing warehouses/products/orders…");
+  await db.batch(
+    ['DELETE FROM "OrderItem"', 'DELETE FROM "Order"', 'DELETE FROM "Stock"', 'DELETE FROM "Product"', 'DELETE FROM "Warehouse"'],
+    "write",
+  );
+
+  await db.batch([multiInsert("Warehouse", ["id", "name", "createdAt"], WAREHOUSES.map(([id, name]) => [id, name, now.toISOString()]))], "write");
 
   console.log("Inserting products…");
   const productRows = products.map((p) => [
@@ -79,13 +90,19 @@ async function main() {
     Number(p.unit_volume_m3),
     p.basis,
     p.verified_real_sku.toLowerCase() === "true" ? 1 : 0,
-    DEFAULT_STOCK,
     now.toISOString(),
   ]);
   await db.batch(
     chunks(productRows, CHUNK).map((rows) =>
-      multiInsert("Product", ["id", "brand", "unitWeightKg", "unitVolumeM3", "basis", "verifiedRealSku", "stock", "updatedAt"], rows),
+      multiInsert("Product", ["id", "brand", "unitWeightKg", "unitVolumeM3", "basis", "verifiedRealSku", "updatedAt"], rows),
     ),
+    "write",
+  );
+
+  console.log("Inserting stock…");
+  const stockRows = WAREHOUSES.flatMap(([wid]) => products.map((p) => [wid, p.product_id, DEFAULT_STOCK, 0, now.toISOString()]));
+  await db.batch(
+    chunks(stockRows, CHUNK).map((rows) => multiInsert("Stock", ["warehouseId", "productId", "quantity", "reserved", "updatedAt"], rows)),
     "write",
   );
 
@@ -97,19 +114,20 @@ async function main() {
   orderEntries.forEach(([code, o], i) => {
     const id = Number(code.replace(/\D/g, "")) || i + 1;
     const createdAt = new Date(start + Math.floor((i / orderEntries.length) * yearMs)).toISOString();
-    orderRows.push([id, code, "delivered", "seed", o.weight, o.volume, createdAt]);
-    for (const [pid, qty] of o.items) itemRows.push([id, pid, qty]);
+    const warehouseId = id % 2 === 1 ? "KDY" : "PLG";
+    orderRows.push([id, code, "delivered", "seed", warehouseId, o.weight, o.volume, createdAt]);
+    for (const [pid, qty] of o.items) itemRows.push([id, pid, qty, qty]);
   });
 
   console.log(`Inserting ${orderRows.length} orders…`);
   // Batches of ~20 statements x 500 rows keep each request well under Turso limits.
   const orderStmts = chunks(orderRows, CHUNK).map((rows) =>
-    multiInsert("Order", ["id", "code", "status", "source", "totalWeightKg", "totalVolumeM3", "createdAt"], rows),
+    multiInsert("Order", ["id", "code", "status", "source", "warehouseId", "totalWeightKg", "totalVolumeM3", "createdAt"], rows),
   );
   for (const group of chunks(orderStmts, 20)) await db.batch(group, "write");
 
   console.log(`Inserting ${itemRows.length} order items…`);
-  const itemStmts = chunks(itemRows, CHUNK).map((rows) => multiInsert("OrderItem", ["orderId", "productId", "quantity"], rows));
+  const itemStmts = chunks(itemRows, CHUNK).map((rows) => multiInsert("OrderItem", ["orderId", "productId", "quantity", "requestedQuantity"], rows));
   let done = 0;
   for (const group of chunks(itemStmts, 20)) {
     await db.batch(group, "write");
@@ -128,7 +146,9 @@ async function main() {
   }
 
   const counts = await db.execute(
-    'SELECT (SELECT COUNT(*) FROM "Product") p, (SELECT COUNT(*) FROM "Order") o, (SELECT COUNT(*) FROM "OrderItem") i',
+    `SELECT (SELECT COUNT(*) FROM "Warehouse") w, (SELECT COUNT(*) FROM "Product") p, (SELECT COUNT(*) FROM "Stock") s,
+       (SELECT COUNT(*) FROM "Order") o, (SELECT COUNT(*) FROM "Order" WHERE warehouseId = 'KDY') kdy,
+       (SELECT COUNT(*) FROM "OrderItem") i, (SELECT COUNT(*) FROM "User") u`,
   );
   console.log("Done:", counts.rows[0]);
 }

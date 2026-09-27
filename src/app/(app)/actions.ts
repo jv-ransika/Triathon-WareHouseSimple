@@ -1,13 +1,16 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { requireUser } from "@/lib/auth";
 import { generateApiKey } from "@/lib/apiKey";
 import { prisma } from "@/lib/db";
 import { AppError } from "@/lib/errors";
-import { createOrder, setProductStock, updateOrderStatus } from "@/lib/orders";
+import { confirmOrder, createOrder, setProductStock, transferStock, updateOrderStatus } from "@/lib/orders";
+import { WAREHOUSE_COOKIE } from "@/lib/warehouseScope";
+import { parseWarehouse } from "@/lib/warehouses";
 
 export type ActionResult = { error?: string; key?: string } | undefined;
 
@@ -42,10 +45,20 @@ export async function deleteApiKeyAction(form: FormData) {
   revalidatePath("/api-keys");
 }
 
+/** Sidebar switcher: scope pages to one warehouse, or "all". */
+export async function setWarehouseAction(form: FormData) {
+  await requireUser();
+  const code = parseWarehouse(form.get("warehouse"));
+  const jar = await cookies();
+  if (code) jar.set(WAREHOUSE_COOKIE, code, { path: "/", sameSite: "lax", maxAge: 60 * 60 * 24 * 365 });
+  else jar.delete(WAREHOUSE_COOKIE);
+  revalidatePath("/", "layout");
+}
+
 export async function updateStockAction(_prev: ActionResult, form: FormData): Promise<ActionResult> {
   await requireUser();
   try {
-    await setProductStock(String(form.get("id")), { stock: Number(form.get("stock")) });
+    await setProductStock(String(form.get("id")), { warehouse: String(form.get("warehouse")), stock: Number(form.get("stock")) });
   } catch (e) {
     return toResult(e);
   }
@@ -53,16 +66,46 @@ export async function updateStockAction(_prev: ActionResult, form: FormData): Pr
   return {};
 }
 
-export async function createOrderAction(items: { product_id: string; quantity: number }[]): Promise<ActionResult> {
+export async function transferStockAction(_prev: ActionResult, form: FormData): Promise<ActionResult> {
+  await requireUser();
+  try {
+    await transferStock(String(form.get("id")), {
+      from: String(form.get("from")),
+      to: String(form.get("to")),
+      quantity: Number(form.get("quantity")),
+    });
+  } catch (e) {
+    return toResult(e);
+  }
+  revalidatePath("/products");
+  return {};
+}
+
+export async function createOrderAction(
+  warehouse: string,
+  items: { product_id: string; quantity: number }[],
+): Promise<ActionResult> {
   const user = await requireUser();
   let code: string;
   try {
-    code = (await createOrder({ items }, user.id, "ui")).code;
+    code = (await createOrder({ warehouse, items }, user.id, "ui")).order.code;
   } catch (e) {
     return toResult(e);
   }
   revalidatePath("/orders");
   redirect(`/orders/${code}`);
+}
+
+export async function confirmOrderAction(_prev: ActionResult, form: FormData): Promise<ActionResult> {
+  await requireUser();
+  const code = String(form.get("code"));
+  try {
+    await confirmOrder(code);
+  } catch (e) {
+    return toResult(e);
+  }
+  revalidatePath(`/orders/${code}`);
+  return {};
 }
 
 export async function updateOrderStatusAction(_prev: ActionResult, form: FormData): Promise<ActionResult> {

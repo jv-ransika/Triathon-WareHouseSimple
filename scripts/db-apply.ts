@@ -1,4 +1,6 @@
-// Applies prisma/init.sql to DATABASE_URL (local file or Turso). Safe to re-run.
+// Applies prisma/init.sql to the database (local file or Turso). Safe to re-run.
+// --reset-data drops the warehouse/product/order tables first (for schema changes);
+// User and ApiKey tables are never dropped.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { dbClient } from "./libsql";
@@ -13,6 +15,11 @@ async function main() {
     .filter(Boolean);
 
   const db = dbClient();
+  if (process.argv.includes("--reset-data")) {
+    const drops = ["OrderItem", "Order", "Stock", "Warehouse", "Product"].map((t) => `DROP TABLE IF EXISTS "${t}"`);
+    await db.batch(["PRAGMA foreign_keys = OFF", ...drops], "write");
+    console.log("Dropped warehouse/product/order tables (users and API keys kept)");
+  }
   await db.batch(statements, "write");
   console.log(`Applied ${statements.length} statements`);
 }

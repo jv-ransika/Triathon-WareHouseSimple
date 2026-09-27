@@ -1,9 +1,12 @@
 import { requireUser } from "@/lib/auth";
+import { getSelectedWarehouse } from "@/lib/warehouseScope";
 import { logout } from "../(auth)/actions";
 import Nav from "./Nav";
+import WarehouseSwitcher from "./WarehouseSwitcher";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const user = await requireUser();
+  const warehouse = await getSelectedWarehouse();
 
   return (
     <div className="min-h-screen md:flex">
@@ -12,6 +15,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         style={{ borderColor: "var(--border)", background: "var(--surface)" }}
       >
         <div className="font-semibold px-2 py-1 md:mb-3 whitespace-nowrap">Warehouse</div>
+        <WarehouseSwitcher key={warehouse ?? "all"} selected={warehouse} />
         <Nav />
         <div className="md:mt-auto ml-auto md:ml-0 flex md:flex-col items-center md:items-stretch gap-2">
           <div className="hidden md:block px-2 text-xs muted truncate" title={user.email}>

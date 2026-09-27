@@ -1,5 +1,6 @@
 // Removes data created by the e2e suite: users e2e-*@test.local, their API keys and
-// orders. Stock taken by their non-cancelled orders is returned first.
+// orders. Stock their orders took (or locked) is returned to each order's warehouse first.
+import type { InStatement } from "@libsql/client";
 import { dbClient } from "./libsql";
 
 async function main() {
@@ -9,16 +10,25 @@ async function main() {
   if (ids.length === 0) return console.log("Nothing to clean up");
   const inList = ids.map(() => "?").join(",");
 
+  // Units per (warehouse, product) still taken (pending/shipped/delivered) or locked (reserved).
+  const held = await db.execute({
+    sql: `SELECT o.warehouseId AS w, oi.productId AS p,
+            SUM(CASE WHEN o.status = 'reserved' THEN 0 ELSE oi.quantity END) AS taken,
+            SUM(CASE WHEN o.status = 'reserved' THEN oi.quantity ELSE 0 END) AS locked
+          FROM "OrderItem" oi JOIN "Order" o ON o.id = oi.orderId
+          WHERE o.createdById IN (${inList}) AND o.status NOT IN ('cancelled', 'expired')
+          GROUP BY o.warehouseId, oi.productId`,
+    args: ids,
+  });
+
+  const restock: InStatement[] = held.rows.map((r) => ({
+    sql: `UPDATE "Stock" SET quantity = quantity + ?, reserved = reserved - ? WHERE warehouseId = ? AND productId = ?`,
+    args: [Number(r.taken) + Number(r.locked), Number(r.locked), r.w as string, r.p as string],
+  }));
+
   const res = await db.batch(
     [
-      {
-        sql: `UPDATE "Product" SET stock = stock + (
-                SELECT SUM(oi.quantity) FROM "OrderItem" oi JOIN "Order" o ON o.id = oi.orderId
-                WHERE oi.productId = "Product".id AND o.status != 'cancelled' AND o.createdById IN (${inList}))
-              WHERE id IN (SELECT oi.productId FROM "OrderItem" oi JOIN "Order" o ON o.id = oi.orderId
-                WHERE o.status != 'cancelled' AND o.createdById IN (${inList}))`,
-        args: [...ids, ...ids],
-      },
+      ...restock,
       { sql: `DELETE FROM "OrderItem" WHERE orderId IN (SELECT id FROM "Order" WHERE createdById IN (${inList}))`, args: ids },
       { sql: `DELETE FROM "Order" WHERE createdById IN (${inList})`, args: ids },
       { sql: `DELETE FROM "ApiKey" WHERE userId IN (${inList})`, args: ids },
@@ -26,7 +36,8 @@ async function main() {
     ],
     "write",
   );
-  console.log(`Removed ${ids.length} test user(s), ${res[2].rowsAffected} order(s); restocked ${res[0].rowsAffected} product(s)`);
+  const orders = res[restock.length + 1].rowsAffected;
+  console.log(`Removed ${ids.length} test user(s), ${orders} order(s); restocked ${restock.length} warehouse/product row(s)`);
 }
 
 main().catch((e) => {

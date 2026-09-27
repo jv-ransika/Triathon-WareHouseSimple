@@ -33,6 +33,14 @@ model ApiKey {
   @@index([userId])
 }
 
+model Warehouse {
+  id        String   @id // KDY | PLG
+  name      String
+  createdAt DateTime @default(now())
+  stocks    Stock[]
+  orders    Order[]
+}
+
 model Product {
   id              String      @id
   brand           String
@@ -40,18 +48,36 @@ model Product {
   unitVolumeM3    Float
   basis           String
   verifiedRealSku Boolean     @default(false)
-  stock           Int         @default(1000)
   updatedAt       DateTime    @default(now()) @updatedAt
   items           OrderItem[]
+  stocks          Stock[]
 
   @@index([brand])
+}
+
+// Per-warehouse stock. quantity = available to order; reserved = locked by
+// unconfirmed ("reserved") orders and not available to anyone else.
+model Stock {
+  warehouseId String
+  warehouse   Warehouse @relation(fields: [warehouseId], references: [id])
+  productId   String
+  product     Product   @relation(fields: [productId], references: [id])
+  quantity    Int       @default(0)
+  reserved    Int       @default(0)
+  updatedAt   DateTime  @default(now()) @updatedAt
+
+  @@id([warehouseId, productId])
+  @@index([productId])
 }
 
 model Order {
   id            Int         @id @default(autoincrement())
   code          String      @unique
-  status        String      @default("pending") // pending | shipped | delivered | cancelled
+  status        String      @default("pending") // reserved | pending | shipped | delivered | cancelled | expired
   source        String      @default("ui") // seed | ui | api
+  warehouseId   String
+  warehouse     Warehouse   @relation(fields: [warehouseId], references: [id])
+  expiresAt     DateTime? // set while status = reserved
   createdById   String?
   createdBy     User?       @relation(fields: [createdById], references: [id], onDelete: SetNull)
   totalWeightKg Float       @default(0)
@@ -61,15 +87,19 @@ model Order {
 
   @@index([status])
   @@index([createdAt])
+  @@index([warehouseId, status])
+  @@index([warehouseId, createdAt])
+  @@index([status, expiresAt])
 }
 
 model OrderItem {
-  id        Int     @id @default(autoincrement())
-  orderId   Int
-  order     Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  productId String
-  product   Product @relation(fields: [productId], references: [id])
-  quantity  Int
+  id                Int     @id @default(autoincrement())
+  orderId           Int
+  order             Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId         String
+  product           Product @relation(fields: [productId], references: [id])
+  quantity          Int // locked (reserved orders) or fulfilled quantity
+  requestedQuantity Int // what the customer asked for
 
   @@index([orderId])
   @@index([productId])

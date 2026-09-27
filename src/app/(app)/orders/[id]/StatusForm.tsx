@@ -11,7 +11,7 @@ const NEXT: Record<string, { status: string; label: string; danger?: boolean }[]
   shipped: [{ status: "delivered", label: "Mark delivered" }],
 };
 
-export default function StatusForm({ code, status }: { code: string; status: string }) {
+export default function StatusForm({ code, status, warehouse }: { code: string; status: string; warehouse: string }) {
   const [state, action, pending] = useActionState(updateOrderStatusAction, undefined);
   const options = NEXT[status] ?? [];
 
@@ -28,7 +28,7 @@ export default function StatusForm({ code, status }: { code: string; status: str
           </button>
         ))}
       </div>
-      {status === "pending" && <p className="muted text-xs">Cancelling returns the units to stock.</p>}
+      {status === "pending" && <p className="muted text-xs">Cancelling returns the units to {warehouse} stock.</p>}
       {state?.error && <p className="error">{state.error}</p>}
     </form>
   );

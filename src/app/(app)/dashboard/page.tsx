@@ -1,35 +1,74 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
+import { releaseExpiredReservations } from "@/lib/orders";
 import { LOW_STOCK } from "@/lib/queries";
+import { getSelectedWarehouse } from "@/lib/warehouseScope";
+import { warehouseName } from "@/lib/warehouses";
 import { PageHeader, StatusBadge, fmt, fmtDate } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
 
 // createdAt may be ISO text (seed / adapter) or epoch ms; normalise to YYYY-MM.
-const MONTH_SQL = `CASE WHEN typeof(createdAt) = 'integer'
-  THEN strftime('%Y-%m', createdAt / 1000, 'unixepoch') ELSE substr(createdAt, 1, 7) END`;
+const MONTH_SQL = `CASE WHEN typeof(o.createdAt) = 'integer'
+  THEN strftime('%Y-%m', o.createdAt / 1000, 'unixepoch') ELSE substr(o.createdAt, 1, 7) END`;
+
+// Units that actually left (or will leave) the warehouse.
+const LIVE = `o.status NOT IN ('cancelled', 'expired')`;
 
 type Row = Record<string, unknown>;
 const n = (v: unknown) => Number(v ?? 0);
 
 export default async function DashboardPage() {
-  const [totals, byBrand, byMonth, byStatus, topProducts, lowStock, recent] = await Promise.all([
-    prisma.$queryRawUnsafe<Row[]>(`SELECT
-      (SELECT COUNT(*) FROM "Product") AS products,
-      (SELECT COALESCE(SUM(stock),0) FROM "Product") AS stock,
-      (SELECT COUNT(*) FROM "Product" WHERE stock < ${LOW_STOCK}) AS lowStock,
-      (SELECT COUNT(*) FROM "Order") AS orders,
-      (SELECT COALESCE(SUM(quantity),0) FROM "OrderItem") AS units,
-      (SELECT COALESCE(SUM(totalWeightKg),0) FROM "Order" WHERE status != 'cancelled') AS weight`),
-    prisma.$queryRawUnsafe<Row[]>(`SELECT p.brand AS brand, SUM(oi.quantity) AS units, COUNT(DISTINCT oi.orderId) AS orders
-      FROM "OrderItem" oi JOIN "Product" p ON p.id = oi.productId GROUP BY p.brand ORDER BY units DESC`),
-    prisma.$queryRawUnsafe<Row[]>(`SELECT ${MONTH_SQL} AS month, COUNT(*) AS orders
-      FROM "Order" GROUP BY month ORDER BY month DESC LIMIT 12`),
-    prisma.$queryRawUnsafe<Row[]>(`SELECT status, COUNT(*) AS c FROM "Order" GROUP BY status`),
-    prisma.$queryRawUnsafe<Row[]>(`SELECT productId, SUM(quantity) AS units FROM "OrderItem"
-      GROUP BY productId ORDER BY units DESC LIMIT 5`),
-    prisma.product.findMany({ where: { stock: { lt: LOW_STOCK } }, orderBy: { stock: "asc" }, take: 5 }),
-    prisma.order.findMany({ orderBy: { id: "desc" }, take: 6, include: { _count: { select: { items: true } } } }),
+  const wh = await getSelectedWarehouse();
+  await releaseExpiredReservations();
+
+  // Optional warehouse filter appended to every query.
+  const oWhere = wh ? `AND o.warehouseId = ?` : "";
+  const sWhere = wh ? `AND s.warehouseId = ?` : "";
+  const a = wh ? [wh] : [];
+  const q = <T = Row,>(sql: string, args: unknown[] = a) => prisma.$queryRawUnsafe<T[]>(sql, ...args);
+
+  const [totals, byBrand, byMonth, byStatus, topProducts, lowStock, recent, byWarehouse] = await Promise.all([
+    q(
+      `SELECT
+        (SELECT COUNT(*) FROM "Product") AS products,
+        (SELECT COALESCE(SUM(quantity),0) FROM "Stock" s WHERE 1=1 ${sWhere}) AS available,
+        (SELECT COALESCE(SUM(reserved),0) FROM "Stock" s WHERE 1=1 ${sWhere}) AS reserved,
+        (SELECT COUNT(*) FROM "Stock" s WHERE quantity < ${LOW_STOCK} ${sWhere}) AS lowStock,
+        (SELECT COUNT(*) FROM "Order" o WHERE 1=1 ${oWhere}) AS orders,
+        (SELECT COALESCE(SUM(oi.quantity),0) FROM "OrderItem" oi JOIN "Order" o ON o.id = oi.orderId WHERE ${LIVE} ${oWhere}) AS units,
+        (SELECT COALESCE(SUM(totalWeightKg),0) FROM "Order" o WHERE ${LIVE} ${oWhere}) AS weight`,
+      [...a, ...a, ...a, ...a, ...a, ...a],
+    ),
+    q(`SELECT p.brand AS brand, SUM(oi.quantity) AS units, COUNT(DISTINCT oi.orderId) AS orders
+       FROM "OrderItem" oi JOIN "Order" o ON o.id = oi.orderId JOIN "Product" p ON p.id = oi.productId
+       WHERE ${LIVE} ${oWhere} GROUP BY p.brand ORDER BY units DESC`),
+    q(`SELECT ${MONTH_SQL} AS month, COUNT(*) AS orders FROM "Order" o WHERE 1=1 ${oWhere}
+       GROUP BY month ORDER BY month DESC LIMIT 12`),
+    q(`SELECT o.status AS status, COUNT(*) AS c FROM "Order" o WHERE 1=1 ${oWhere} GROUP BY o.status`),
+    q(`SELECT oi.productId AS productId, SUM(oi.quantity) AS units FROM "OrderItem" oi JOIN "Order" o ON o.id = oi.orderId
+       WHERE ${LIVE} ${oWhere} GROUP BY oi.productId ORDER BY units DESC LIMIT 5`),
+    prisma.stock.findMany({
+      where: { quantity: { lt: LOW_STOCK }, ...(wh ? { warehouseId: wh } : {}) },
+      orderBy: [{ quantity: "asc" }, { productId: "asc" }],
+      take: 6,
+    }),
+    prisma.order.findMany({
+      where: wh ? { warehouseId: wh } : {},
+      orderBy: { id: "desc" },
+      take: 6,
+      include: { _count: { select: { items: true } } },
+    }),
+    wh
+      ? Promise.resolve([] as Row[])
+      : q(
+          `SELECT w.id AS code,
+             (SELECT COUNT(*) FROM "Order" o WHERE o.warehouseId = w.id) AS orders,
+             (SELECT COALESCE(SUM(quantity),0) FROM "Stock" s WHERE s.warehouseId = w.id) AS available,
+             (SELECT COALESCE(SUM(reserved),0) FROM "Stock" s WHERE s.warehouseId = w.id) AS reserved
+           FROM "Warehouse" w ORDER BY w.id`,
+          [],
+        ),
   ]);
 
   const t = totals[0];
@@ -39,19 +78,29 @@ export default async function DashboardPage() {
   const maxBrand = Math.max(1, ...brands.map((b) => b.units));
   const maxTop = Math.max(1, ...topProducts.map((r) => n(r.units)));
   const statusCount = Object.fromEntries(byStatus.map((r) => [String(r.status), n(r.c)]));
+  const scope = wh ? warehouseName(wh) : "All warehouses";
 
   const stats = [
-    { label: "Products", value: fmt(n(t.products)), sub: `${fmt(n(t.stock))} units in stock` },
+    { label: "Units available", value: fmt(n(t.available)), sub: `${fmt(n(t.reserved))} locked · ${fmt(n(t.products))} products` },
     { label: "Orders", value: fmt(n(t.orders)), sub: `${fmt(statusCount.pending ?? 0)} pending` },
-    { label: "Units ordered", value: fmt(n(t.units)), sub: `${fmt(n(t.weight) / 1000, 1)} t shipped weight` },
-    { label: "Low stock", value: fmt(n(t.lowStock)), sub: `products below ${LOW_STOCK} units` },
+    {
+      label: "Awaiting confirmation",
+      value: fmt(statusCount.reserved ?? 0),
+      sub: "partially available orders with locked stock",
+    },
+    { label: "Units ordered", value: fmt(n(t.units)), sub: `${fmt(n(t.weight) / 1000, 1)} t total weight` },
+    { label: "Low stock", value: fmt(n(t.lowStock)), sub: `stock rows below ${LOW_STOCK} units` },
   ];
 
   return (
     <>
-      <PageHeader title="Dashboard" subtitle="Warehouse overview" action={<Link className="btn" href="/orders/new">New order</Link>} />
+      <PageHeader
+        title="Dashboard"
+        subtitle={`${scope} overview`}
+        action={<Link className="btn" href="/orders/new">New order</Link>}
+      />
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-4">
         {stats.map((s) => (
           <div key={s.label} className="card">
             <div className="muted text-xs font-medium">{s.label}</div>
@@ -61,10 +110,28 @@ export default async function DashboardPage() {
         ))}
       </div>
 
+      {byWarehouse.length > 0 && (
+        <div className="grid sm:grid-cols-2 gap-3 mb-4">
+          {byWarehouse.map((w) => (
+            <div key={String(w.code)} className="card flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="font-medium">{warehouseName(String(w.code))}</div>
+                <div className="muted text-xs">{String(w.code)}</div>
+              </div>
+              <div className="flex gap-6 text-sm">
+                <div><div className="muted text-xs">Orders</div><div className="num" style={{ textAlign: "left" }}>{fmt(n(w.orders))}</div></div>
+                <div><div className="muted text-xs">Available</div><div className="num" style={{ textAlign: "left" }}>{fmt(n(w.available))}</div></div>
+                <div><div className="muted text-xs">Locked</div><div className="num" style={{ textAlign: "left" }}>{fmt(n(w.reserved))}</div></div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
       <div className="grid lg:grid-cols-3 gap-3 mb-4">
         <section className="card lg:col-span-2">
           <h2 className="font-medium">Orders per month</h2>
-          <p className="muted text-xs mb-3">Last {months.length} months</p>
+          <p className="muted text-xs mb-3">{scope} · last {months.length} months</p>
           <div className="chart-cols" role="img" aria-label="Orders per month column chart">
             {months.map((m) => (
               <div key={m.month} className="chart-col" tabIndex={0}>
@@ -80,7 +147,7 @@ export default async function DashboardPage() {
 
         <section className="card">
           <h2 className="font-medium">Units ordered by brand</h2>
-          <p className="muted text-xs mb-3">All orders</p>
+          <p className="muted text-xs mb-3">{scope}</p>
           <div className="space-y-3">
             {brands.map((b) => (
               <div key={b.brand} title={`${b.brand}: ${fmt(b.units)} units in ${fmt(b.orders)} orders`}>
@@ -121,12 +188,13 @@ export default async function DashboardPage() {
           <div className="table-wrap">
             <table className="table">
               <thead>
-                <tr><th>Order</th><th>Status</th><th className="num">Lines</th><th className="num">Weight kg</th><th>Created</th></tr>
+                <tr><th>Order</th><th>Warehouse</th><th>Status</th><th className="num">Lines</th><th className="num">Weight kg</th><th>Created</th></tr>
               </thead>
               <tbody>
                 {recent.map((o) => (
                   <tr key={o.id}>
                     <td><Link className="link mono" href={`/orders/${o.code}`}>{o.code}</Link></td>
+                    <td>{warehouseName(o.warehouseId)}</td>
                     <td><StatusBadge status={o.status} /></td>
                     <td className="num">{o._count.items}</td>
                     <td className="num">{fmt(o.totalWeightKg, 1)}</td>
@@ -144,14 +212,15 @@ export default async function DashboardPage() {
             <Link className="link text-sm" href="/products?sort=stock">Manage</Link>
           </div>
           {lowStock.length === 0 ? (
-            <p className="muted text-sm px-4 pb-4">All products have at least {LOW_STOCK} units.</p>
+            <p className="muted text-sm px-4 pb-4">All products have at least {LOW_STOCK} units{wh ? ` in ${scope}` : " in each warehouse"}.</p>
           ) : (
             <table className="table">
               <tbody>
-                {lowStock.map((p) => (
-                  <tr key={p.id}>
-                    <td className="mono">{p.id}</td>
-                    <td className="num" style={{ color: "var(--bad)" }}>{fmt(p.stock)}</td>
+                {lowStock.map((s) => (
+                  <tr key={s.warehouseId + s.productId}>
+                    <td className="mono">{s.productId}</td>
+                    <td className="muted">{warehouseName(s.warehouseId)}</td>
+                    <td className="num" style={{ color: "var(--bad)" }}>{fmt(s.quantity)}</td>
                   </tr>
                 ))}
               </tbody>
