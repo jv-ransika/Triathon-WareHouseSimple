@@ -30,10 +30,22 @@ async function login(page: Page, email = user.email, password = user.password, e
   if (expectSuccess) await expect(page).toHaveURL(/\/dashboard$/);
 }
 
+// GETs are retried on network errors/timeouts (flaky connections to a remote deployment);
+// writes are not, since repeating them could apply twice.
+async function getWithRetry(request: APIRequestContext, url: string, key: string) {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await request.get(url, { headers: { "x-api-key": key }, timeout: 20_000 });
+    } catch (e) {
+      if (attempt >= 3 || !/Timeout|ECONNRESET|socket hang up|ETIMEDOUT/i.test(String(e))) throw e;
+    }
+  }
+}
+
 const api = (request: APIRequestContext, key = apiKey) => ({
-  get: (path: string) => request.get(`/api/v1${path}`, { headers: { "x-api-key": key } }),
+  get: (path: string) => getWithRetry(request, `/api/v1${path}`, key),
   send: (method: "POST" | "PUT" | "PATCH", path: string, data?: unknown) =>
-    request.fetch(`/api/v1${path}`, { method, headers: { "x-api-key": key }, data }),
+    request.fetch(`/api/v1${path}`, { method, headers: { "x-api-key": key }, data, timeout: 45_000 }),
 });
 
 async function stockOf(request: APIRequestContext, id: string, wh: WH): Promise<{ available: number; reserved: number }> {
@@ -167,6 +179,8 @@ test.describe("dashboard, warehouses, products, orders UI", () => {
     expect(new Set(plg)).toEqual(new Set(["Peliyagoda"]));
 
     await selectWarehouse(page, "");
+    // wait for the server action to re-render the page before navigating away
+    await expect(page.locator("main").getByText("All warehouses", { exact: true })).toBeVisible();
     await page.goto("/dashboard");
     await expect(page.getByText("All warehouses overview")).toBeVisible();
   });
