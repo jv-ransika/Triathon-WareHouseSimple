@@ -20,6 +20,17 @@ export function StatusBadge({ status }: { status: string }) {
   );
 }
 
+/** Storage temperature of a product or order: ambient, chilled or mixed. */
+export function TempBadge({ temp }: { temp: string }) {
+  const chilled = temp === "chilled";
+  return (
+    <span className="badge" data-temp={temp} style={chilled ? { borderColor: "var(--chart)", color: "var(--chart)" } : undefined}>
+      <span aria-hidden="true">{chilled ? "❄" : temp === "mixed" ? "◐" : "☀"}</span>
+      {temp}
+    </span>
+  );
+}
+
 export function PageHeader({ title, subtitle, action }: { title: string; subtitle?: string; action?: React.ReactNode }) {
   return (
     <div className="flex flex-wrap items-end justify-between gap-3 mb-5">

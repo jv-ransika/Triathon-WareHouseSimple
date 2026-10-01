@@ -4,6 +4,8 @@ import { prisma } from "./db";
 import { WAREHOUSES, warehouseName, type WarehouseCode } from "./warehouses";
 
 export const LOW_STOCK = 50;
+export const TEMPS = ["ambient", "chilled"] as const;
+export const parseTemp = (v: unknown) => (typeof v === "string" && (TEMPS as readonly string[]).includes(v.toLowerCase()) ? v.toLowerCase() : null);
 
 export type ProductWithStocks = Product & { stocks: Stock[] };
 
@@ -14,6 +16,7 @@ export type ProductWithStocks = Product & { stocks: Stock[] };
  */
 export async function listProducts(opts: {
   brand?: string | null;
+  temp?: string | null;
   q?: string | null;
   sort?: string | null;
   warehouse?: WarehouseCode | null;
@@ -29,6 +32,10 @@ export async function listProducts(opts: {
   if (opts.brand) {
     where.push("p.brand = ?");
     args.push(opts.brand);
+  }
+  if (opts.temp) {
+    where.push("p.tempRequirement = ?");
+    args.push(opts.temp);
   }
   if (opts.q) {
     where.push("p.id LIKE ?");
@@ -57,6 +64,7 @@ export function getProduct(id: string) {
 
 export async function listOrders(opts: {
   status?: string | null;
+  temp?: string | null;
   q?: string | null;
   warehouse?: WarehouseCode | null;
   skip: number;
@@ -65,6 +73,7 @@ export async function listOrders(opts: {
   const where: Prisma.OrderWhereInput = {};
   if (opts.status) where.status = opts.status;
   if (opts.warehouse) where.warehouseId = opts.warehouse;
+  if (opts.temp) where.tempRequirement = opts.temp;
   if (opts.q) where.code = { contains: opts.q.toUpperCase() };
   const [total, items] = await Promise.all([
     prisma.order.count({ where }),
@@ -101,9 +110,12 @@ export const productJson = (p: ProductWithStocks) => {
   return {
     product_id: p.id,
     brand: p.brand,
+    temp_requirement: p.tempRequirement,
     unit_weight_kg: p.unitWeightKg,
     unit_volume_m3: p.unitVolumeM3,
+    base_product_id: p.baseProductId,
     basis: p.basis,
+    temperature_basis: p.temperatureBasis,
     verified_real_sku: p.verifiedRealSku,
     stock,
     total_available: Object.values(stock).reduce((s, x) => s + x.available, 0),
@@ -116,6 +128,7 @@ export const orderJson = (o: Order & { items?: OrderItem[]; _count?: { items: nu
   order_id: o.code,
   status: o.status,
   warehouse: { code: o.warehouseId, name: warehouseName(o.warehouseId) },
+  temp_requirement: o.tempRequirement,
   source: o.source,
   total_weight_kg: Number(o.totalWeightKg.toFixed(3)),
   total_volume_m3: Number(o.totalVolumeM3.toFixed(4)),

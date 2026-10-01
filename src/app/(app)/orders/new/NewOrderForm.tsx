@@ -4,7 +4,7 @@ import { useMemo, useState, useTransition } from "react";
 import { WAREHOUSES, warehouseName } from "@/lib/warehouses";
 import { createOrderAction } from "../../actions";
 
-type P = { id: string; brand: string; stock: Record<string, number>; unitWeightKg: number; unitVolumeM3: number };
+type P = { id: string; brand: string; temp: string; stock: Record<string, number>; unitWeightKg: number; unitVolumeM3: number };
 type Line = { key: number; productId: string; quantity: number };
 
 let nextKey = 1;
@@ -31,6 +31,7 @@ export default function NewOrderForm({ products, defaultWarehouse }: { products:
     },
     { weight: 0, volume: 0, units: 0 },
   );
+  const temps = new Set(lines.map((l) => byId.get(l.productId)?.temp).filter(Boolean));
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -56,7 +57,7 @@ export default function NewOrderForm({ products, defaultWarehouse }: { products:
 
       <datalist id="product-list">
         {products.map((p) => (
-          <option key={p.id} value={p.id}>{`${p.brand} · ${p.stock[warehouse] ?? 0} in ${warehouseName(warehouse)}`}</option>
+          <option key={p.id} value={p.id}>{`${p.brand} · ${p.temp} · ${p.stock[warehouse] ?? 0} in ${warehouseName(warehouse)}`}</option>
         ))}
       </datalist>
 
@@ -88,7 +89,7 @@ export default function NewOrderForm({ products, defaultWarehouse }: { products:
               />
             </div>
             <div className="text-xs pb-2 w-56" style={{ color: over ? "var(--bad)" : "var(--muted)" }}>
-              {l.productId && !p ? "Unknown product" : p ? `${p.brand} · ${avail} in ${warehouseName(warehouse)}${over ? " · short, you will be asked to confirm" : ""}` : ""}
+              {l.productId && !p ? "Unknown product" : p ? `${p.brand} · ${p.temp} · ${avail} in ${warehouseName(warehouse)}${over ? " · short, you will be asked to confirm" : ""}` : ""}
             </div>
             <button
               type="button"
@@ -110,9 +111,16 @@ export default function NewOrderForm({ products, defaultWarehouse }: { products:
       <div className="flex flex-wrap items-center justify-between gap-3 pt-3" style={{ borderTop: "1px solid var(--border)" }}>
         <div className="muted text-sm">
           {totals.units} units · {totals.weight.toFixed(1)} kg · {totals.volume.toFixed(3)} m³
+          {temps.size === 1 && <> · {[...temps][0]}</>}
         </div>
         <button className="btn" disabled={pending}>{pending ? "Placing…" : "Place order"}</button>
       </div>
+      {temps.size > 1 && (
+        <p className="text-sm" style={{ color: "var(--warn)" }} data-testid="mixed-temp-warning">
+          This order mixes chilled and ambient products. It will be saved as a mixed-temperature order; in the source data
+          every order is a single temperature.
+        </p>
+      )}
       {error && <p className="error">{error}</p>}
     </form>
   );

@@ -4,7 +4,7 @@ import { releaseExpiredReservations } from "@/lib/orders";
 import { LOW_STOCK } from "@/lib/queries";
 import { getSelectedWarehouse } from "@/lib/warehouseScope";
 import { warehouseName } from "@/lib/warehouses";
-import { PageHeader, StatusBadge, fmt, fmtDate } from "@/components/ui";
+import { PageHeader, StatusBadge, TempBadge, fmt, fmtDate } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
 
@@ -28,7 +28,7 @@ export default async function DashboardPage() {
   const a = wh ? [wh] : [];
   const q = <T = Row,>(sql: string, args: unknown[] = a) => prisma.$queryRawUnsafe<T[]>(sql, ...args);
 
-  const [totals, byBrand, byMonth, byStatus, topProducts, lowStock, recent, byWarehouse] = await Promise.all([
+  const [totals, byBrand, byMonth, byStatus, topProducts, lowStock, recent, byWarehouse, byTemp] = await Promise.all([
     q(
       `SELECT
         (SELECT COUNT(*) FROM "Product") AS products,
@@ -69,6 +69,17 @@ export default async function DashboardPage() {
            FROM "Warehouse" w ORDER BY w.id`,
           [],
         ),
+    // Per temperature: orders and units ordered, plus units available in stock.
+    q(
+      `SELECT t.temp AS temp,
+         (SELECT COUNT(*) FROM "Order" o WHERE o.tempRequirement = t.temp ${oWhere}) AS orders,
+         (SELECT COALESCE(SUM(oi.quantity),0) FROM "OrderItem" oi JOIN "Order" o ON o.id = oi.orderId
+            JOIN "Product" p ON p.id = oi.productId WHERE p.tempRequirement = t.temp AND ${LIVE} ${oWhere}) AS units,
+         (SELECT COALESCE(SUM(s.quantity),0) FROM "Stock" s JOIN "Product" p ON p.id = s.productId
+            WHERE p.tempRequirement = t.temp ${sWhere}) AS available
+       FROM (SELECT 'ambient' AS temp UNION ALL SELECT 'chilled') t`,
+      [...a, ...a, ...a, ...a],
+    ),
   ]);
 
   const t = totals[0];
@@ -77,6 +88,8 @@ export default async function DashboardPage() {
   const brands = byBrand.map((r) => ({ brand: String(r.brand), units: n(r.units), orders: n(r.orders) }));
   const maxBrand = Math.max(1, ...brands.map((b) => b.units));
   const maxTop = Math.max(1, ...topProducts.map((r) => n(r.units)));
+  const temps = byTemp.map((r) => ({ temp: String(r.temp), orders: n(r.orders), units: n(r.units), available: n(r.available) }));
+  const maxTempUnits = Math.max(1, ...temps.map((x) => x.units));
   const statusCount = Object.fromEntries(byStatus.map((r) => [String(r.status), n(r.c)]));
   const scope = wh ? warehouseName(wh) : "All warehouses";
 
@@ -161,6 +174,23 @@ export default async function DashboardPage() {
               </div>
             ))}
           </div>
+          <h2 className="font-medium mt-6">By temperature</h2>
+          <p className="muted text-xs mb-3">Units ordered · orders · units in stock</p>
+          <div className="space-y-3" data-testid="dashboard-by-temp">
+            {temps.map((x) => (
+              <div key={x.temp} title={`${x.temp}: ${fmt(x.units)} units in ${fmt(x.orders)} orders, ${fmt(x.available)} in stock`}>
+                <div className="flex justify-between text-sm mb-1">
+                  <TempBadge temp={x.temp} />
+                  <span className="num">
+                    {fmt(x.units)} <span className="muted">· {fmt(x.orders)} orders · {fmt(x.available)} in stock</span>
+                  </span>
+                </div>
+                <div className="hbar-track">
+                  <div className="hbar" style={{ width: `${(x.units / maxTempUnits) * 100}%` }} />
+                </div>
+              </div>
+            ))}
+          </div>
           <h2 className="font-medium mt-6">Top products</h2>
           <p className="muted text-xs mb-3">By units ordered</p>
           <div className="space-y-2">
@@ -188,13 +218,14 @@ export default async function DashboardPage() {
           <div className="table-wrap">
             <table className="table">
               <thead>
-                <tr><th>Order</th><th>Warehouse</th><th>Status</th><th className="num">Lines</th><th className="num">Weight kg</th><th>Created</th></tr>
+                <tr><th>Order</th><th>Warehouse</th><th>Temp</th><th>Status</th><th className="num">Lines</th><th className="num">Weight kg</th><th>Created</th></tr>
               </thead>
               <tbody>
                 {recent.map((o) => (
                   <tr key={o.id}>
                     <td><Link className="link mono" href={`/orders/${o.code}`}>{o.code}</Link></td>
                     <td>{warehouseName(o.warehouseId)}</td>
+                    <td><TempBadge temp={o.tempRequirement} /></td>
                     <td><StatusBadge status={o.status} /></td>
                     <td className="num">{o._count.items}</td>
                     <td className="num">{fmt(o.totalWeightKg, 1)}</td>

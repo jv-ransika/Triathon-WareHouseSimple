@@ -11,10 +11,10 @@ let apiKey = "";
 let uiOrderCode = "";
 
 type WH = "KDY" | "PLG";
-const UI_PRODUCT = "C32_STYLE_010";
-const UI_RES_PRODUCT = "C32_STYLE_011";
-const API_PRODUCT = "C32_TECH_050";
-const API_PRODUCT_2 = "C32_FRESH_020";
+const UI_PRODUCT = "C32_STYLE_010_AMB";
+const UI_RES_PRODUCT = "C32_STYLE_011_AMB";
+const API_PRODUCT = "C32_TECH_050_AMB"; // ambient
+const API_PRODUCT_2 = "C32_FRESH_020_CHL"; // chilled
 
 // Direct DB access is only used to fast-forward a reservation's expiry. Locally it uses .env;
 // against a deployed site it needs that site's DB env (TURSO_*), otherwise the test is skipped.
@@ -187,7 +187,7 @@ test.describe("dashboard, warehouses, products, orders UI", () => {
 
   test("products: search, brand filter, sort, paging", async ({ page }) => {
     await page.goto("/products");
-    await expect(page.getByText("280 results")).toBeVisible();
+    await expect(page.getByText("330 results")).toBeVisible();
     await expect(page.locator("thead th", { hasText: "Kandy" })).toBeVisible();
     await expect(page.locator("thead th", { hasText: "Peliyagoda" })).toBeVisible();
 
@@ -201,13 +201,36 @@ test.describe("dashboard, warehouses, products, orders UI", () => {
     await expect(page.locator("tbody td:nth-child(2)").first()).toHaveText("Style");
 
     await page.goto("/products?sort=stock"); // All warehouses: sorted by total
-    const totals = (await page.locator("tbody td:nth-child(7)").allTextContents()).map((s) => Number(s.replace(/\D/g, "")));
+    const totals = (await page.locator("tbody td:nth-child(8)").allTextContents()).map((s) => Number(s.replace(/\D/g, "")));
     expect(totals).toEqual([...totals].sort((a, b) => a - b));
 
     await page.goto("/products");
     await page.getByRole("link", { name: "Next" }).click();
     await expect(page).toHaveURL(/page=2/);
-    await expect(page.getByText("page 2 of 12")).toBeVisible();
+    await expect(page.getByText("page 2 of 14")).toBeVisible();
+  });
+
+  test("products and orders: temperature column and filter", async ({ page }) => {
+    await page.goto("/products");
+    await page.getByLabel("Temperature").selectOption("chilled");
+    await page.getByRole("button", { name: "Filter" }).click();
+    await expect(page.getByText("52 results")).toBeVisible();
+    const temps = await page.locator("tbody td:nth-child(3)").allTextContents();
+    expect(temps.length).toBeGreaterThan(0);
+    expect(temps.every((t) => t.includes("chilled"))).toBe(true);
+    await expect(page.locator(`tr[data-product="C32_FRESH_019_CHL"]`)).toBeVisible();
+
+    await page.goto("/products?temp=ambient&brand=Fresh");
+    await expect(page.getByText("53 results")).toBeVisible();
+
+    await page.goto("/orders?temp=chilled");
+    const orderTemps = await page.locator("tbody td:nth-child(3)").allTextContents();
+    expect(orderTemps.length).toBeGreaterThan(0);
+    expect(orderTemps.every((t) => t.includes("chilled"))).toBe(true);
+
+    await page.goto("/dashboard");
+    await expect(page.getByTestId("dashboard-by-temp")).toContainText("chilled");
+    await expect(page.getByTestId("dashboard-by-temp")).toContainText("ambient");
   });
 
   test("products: edit stock per warehouse", async ({ page }) => {
@@ -261,7 +284,8 @@ test.describe("dashboard, warehouses, products, orders UI", () => {
     await expect(page).toHaveURL(/\/orders\/ORD0000001$/);
     await expect(page.getByRole("heading", { name: "ORD0000001" })).toBeVisible();
     await expect(page.getByText("Kandy warehouse")).toBeVisible(); // odd seeded order numbers are Kandy
-    await expect(page.getByRole("cell", { name: "C32_FRESH_019" })).toBeVisible();
+    await expect(page.getByRole("cell", { name: "C32_FRESH_019_AMB" })).toBeVisible();
+    await expect(page.locator('[data-temp="ambient"]').first()).toBeVisible();
     await expect(page.getByText("No further status changes.")).toBeVisible();
 
     await page.goto("/orders/ORD0000002");
@@ -277,6 +301,14 @@ test.describe("dashboard, warehouses, products, orders UI", () => {
     await expect(page.getByText("Unknown product")).toBeVisible();
     await page.getByRole("button", { name: "Place order" }).click();
     await expect(page.getByText("Unknown product(s): NOT_A_PRODUCT")).toBeVisible();
+
+    // chilled + ambient in one order -> warning
+    await page.getByPlaceholder("e.g. C32_TECH_001").fill("C32_FRESH_019_CHL");
+    await expect(page.locator("form div.text-xs", { hasText: /Fresh · chilled ·/ })).toBeVisible();
+    await expect(page.getByTestId("mixed-temp-warning")).toHaveCount(0);
+    await page.getByRole("button", { name: "+ Add line" }).click();
+    await page.getByPlaceholder("e.g. C32_TECH_001").nth(1).fill(UI_PRODUCT);
+    await expect(page.getByTestId("mixed-temp-warning")).toBeVisible();
   });
 
   test("orders: Kandy order takes Kandy stock only; ship, deliver", async ({ page }) => {
@@ -300,7 +332,7 @@ test.describe("dashboard, warehouses, products, orders UI", () => {
     await expect(page.getByText("Kandy warehouse")).toBeVisible();
     await expect(page.getByText(`ui · ${user.email}`)).toBeVisible();
     await expect(page.locator("tbody tr")).toHaveCount(1);
-    await expect(page.locator("tbody tr td").nth(3)).toHaveText("5");
+    await expect(page.locator("tbody tr td").nth(4)).toHaveText("5");
 
     await page.getByRole("button", { name: "Mark shipped" }).click();
     await expect(page.locator(".badge", { hasText: "shipped" })).toBeVisible();
@@ -356,8 +388,8 @@ test.describe("dashboard, warehouses, products, orders UI", () => {
     await page.getByRole("button", { name: /Confirm partial order/ }).click();
     await expect(page.locator(".badge", { hasText: "pending" })).toBeVisible();
     await expect(page.getByTestId("reservation-panel")).toHaveCount(0);
-    await expect(page.locator("tbody tr td").nth(2)).toHaveText("8"); // requested
-    await expect(page.locator("tbody tr td").nth(3)).toHaveText("5"); // fulfilled
+    await expect(page.locator("tbody tr td").nth(3)).toHaveText("8"); // requested
+    await expect(page.locator("tbody tr td").nth(4)).toHaveText("5"); // fulfilled
 
     await page.goto(`/products?q=${UI_RES_PRODUCT}`);
     await expect(stockButton(page, UI_RES_PRODUCT, "KDY")).toHaveText("0");
@@ -466,21 +498,26 @@ test.describe("public API", () => {
     ]);
     for (const w of data) {
       expect(w.units_available).toBeGreaterThan(0);
+      expect(w.by_temperature.chilled.available).toBeGreaterThan(0);
+      expect(w.by_temperature.ambient.available + w.by_temperature.chilled.available).toBe(w.units_available);
       expect(w.orders.delivered).toBeGreaterThan(40_000);
     }
   });
 
   test("GET /products: list, stock per warehouse, filters, sort, paging", async ({ request }) => {
     let body = await (await api(request).get("/products")).json();
-    expect(body.total).toBe(280);
+    expect(body.total).toBe(330);
     expect(body.limit).toBe(20);
     expect(body.data).toHaveLength(20);
     expect(Object.keys(body.data[0]).sort()).toEqual(
       [
+        "base_product_id",
         "basis",
         "brand",
         "product_id",
         "stock",
+        "temp_requirement",
+        "temperature_basis",
         "total_available",
         "total_reserved",
         "unit_volume_m3",
@@ -499,16 +536,38 @@ test.describe("public API", () => {
     expect(body.data.every((x: { brand: string }) => x.brand === "Tech")).toBe(true);
 
     body = await (await api(request).get("/products?q=fresh_04&page=1&limit=3")).json();
-    expect(body.total).toBe(7); // C32_FRESH_040..046
+    expect(body.total).toBe(14); // C32_FRESH_040..046, ambient and chilled versions
     expect(body.data).toHaveLength(3);
-    const page3 = await (await api(request).get("/products?q=fresh_04&page=3&limit=3")).json();
-    expect(page3.data).toHaveLength(1);
+    const page5 = await (await api(request).get("/products?q=fresh_04&page=5&limit=3")).json();
+    expect(page5.data).toHaveLength(2);
 
     body = await (await api(request).get("/products?warehouse=kandy&sort=stock&limit=50")).json(); // name accepted
     const kdy = body.data.map((x: { stock: { KDY: { available: number } } }) => x.stock.KDY.available);
     expect(kdy).toEqual([...kdy].sort((a: number, b: number) => a - b));
 
     const bad = await api(request).get("/products?warehouse=colombo");
+    expect(bad.status()).toBe(422);
+  });
+
+  test("GET /products?temp= and temperature fields", async ({ request }) => {
+    let body = await (await api(request).get("/products?temp=chilled&limit=100")).json();
+    expect(body.total).toBe(52);
+    expect(body.data.every((p: { temp_requirement: string; brand: string }) => p.temp_requirement === "chilled" && p.brand === "Fresh")).toBe(true);
+    body = await (await api(request).get("/products?temp=AMBIENT&brand=Tech&limit=1")).json(); // case-insensitive
+    expect(body.total).toBe(178);
+
+    const p = (await (await api(request).get("/products/C32_FRESH_019_CHL")).json()).data;
+    expect(p).toMatchObject({
+      brand: "Fresh",
+      temp_requirement: "chilled",
+      base_product_id: "C32_FRESH_019",
+      temperature_basis: "inherited_from_original_order",
+    });
+    const amb = (await (await api(request).get("/products/C32_FRESH_019_AMB")).json()).data;
+    expect(amb.temp_requirement).toBe("ambient");
+    expect(amb.unit_weight_kg).toBe(p.unit_weight_kg); // same base product, same fitted weight
+
+    const bad = await api(request).get("/products?temp=frozen");
     expect(bad.status()).toBe(422);
   });
 
@@ -524,10 +583,10 @@ test.describe("public API", () => {
   });
 
   test("GET /products/:id", async ({ request }) => {
-    const res = await api(request).get("/products/C32_TECH_001");
+    const res = await api(request).get("/products/C32_TECH_001_AMB");
     expect(res.status()).toBe(200);
     const { data } = await res.json();
-    expect(data).toMatchObject({ product_id: "C32_TECH_001", brand: "Tech", unit_weight_kg: 57.8, unit_volume_m3: 0.18 });
+    expect(data).toMatchObject({ product_id: "C32_TECH_001_AMB", brand: "Tech", temp_requirement: "ambient", unit_weight_kg: 57.8, unit_volume_m3: 0.18 });
     expect(data.stock.KDY).toHaveProperty("available");
     expect(data.stock.PLG).toHaveProperty("reserved");
 
@@ -634,11 +693,22 @@ test.describe("public API", () => {
     const res = await api(request).get("/orders/ord0000001"); // case-insensitive
     expect(res.status()).toBe(200);
     const { data } = await res.json();
-    expect(data).toMatchObject({ order_id: "ORD0000001", status: "delivered", source: "seed", warehouse: { code: "KDY", name: "Kandy" } });
+    expect(data).toMatchObject({
+      order_id: "ORD0000001",
+      status: "delivered",
+      source: "seed",
+      temp_requirement: "ambient",
+      warehouse: { code: "KDY", name: "Kandy" },
+    });
     expect(data.items).toEqual([
-      { product_id: "C32_FRESH_019", quantity: 4, requested_quantity: 4 },
-      { product_id: "C32_FRESH_043", quantity: 4, requested_quantity: 4 },
+      { product_id: "C32_FRESH_019_AMB", quantity: 4, requested_quantity: 4 },
+      { product_id: "C32_FRESH_043_AMB", quantity: 4, requested_quantity: 4 },
     ]);
+
+    const chilled = await (await api(request).get("/orders?temp=chilled&limit=50")).json();
+    expect(chilled.total).toBeGreaterThanOrEqual(37031);
+    expect(chilled.data.every((o: { temp_requirement: string }) => o.temp_requirement === "chilled")).toBe(true);
+    expect((await api(request).get("/orders?temp=frozen")).status()).toBe(422);
     const two = await (await api(request).get("/orders/ORD0000002")).json();
     expect(two.data.warehouse.code).toBe("PLG");
 
@@ -665,7 +735,13 @@ test.describe("public API", () => {
     expect(res.status()).toBe(201);
     const { data } = await res.json();
     expect(data.order_id).toMatch(/^ORD\d{7}$/);
-    expect(data).toMatchObject({ status: "pending", source: "api", warehouse: { code: "PLG", name: "Peliyagoda" }, expires_at: null });
+    expect(data).toMatchObject({
+      status: "pending",
+      source: "api",
+      warehouse: { code: "PLG", name: "Peliyagoda" },
+      temp_requirement: "mixed", // ambient Tech + chilled Fresh
+      expires_at: null,
+    });
     expect(data.items).toEqual([
       { product_id: API_PRODUCT, quantity: 3, requested_quantity: 3 },
       { product_id: API_PRODUCT_2, quantity: 5, requested_quantity: 5 },
@@ -780,6 +856,8 @@ test.describe("public API", () => {
     const again = await api(request).send("POST", `/orders/${code}/confirm`);
     expect(again.status()).toBe(409);
 
+    expect(body.data.temp_requirement).toBe("mixed");
+
     // cancel the confirmed order -> units back to Peliyagoda; restore stock
     await api(request).send("PUT", `/orders/${code}/status`, { status: "cancelled" });
     expect(await stockOf(request, API_PRODUCT_2, "PLG")).toEqual({ available: 4, reserved: 0 });
@@ -793,7 +871,9 @@ test.describe("public API", () => {
 
     let res = await api(request).send("POST", "/orders", { warehouse: "KDY", items: [{ product_id: API_PRODUCT_2, quantity: 5 }] });
     expect(res.status()).toBe(202);
-    let code = (await res.json()).data.order_id;
+    const created = (await res.json()).data;
+    expect(created.temp_requirement).toBe("chilled");
+    let code = created.order_id;
     expect(await stockOf(request, API_PRODUCT_2, "KDY")).toEqual({ available: 0, reserved: 3 });
 
     res = await api(request).send("PUT", `/orders/${code}/status`, { status: "shipped" });

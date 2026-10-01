@@ -63,17 +63,21 @@ model Warehouse {
 }
 
 model Product {
-  id              String      @id
-  brand           String
-  unitWeightKg    Float
-  unitVolumeM3    Float
-  basis           String
-  verifiedRealSku Boolean     @default(false)
-  updatedAt       DateTime    @default(now()) @updatedAt
-  items           OrderItem[]
-  stocks          Stock[]
+  id               String      @id // temperature-specific ID, e.g. C32_FRESH_019_CHL
+  brand            String
+  tempRequirement  String // ambient | chilled
+  unitWeightKg     Float
+  unitVolumeM3     Float
+  baseProductId    String // ID in the original 280-product catalogue
+  basis            String
+  temperatureBasis String
+  verifiedRealSku  Boolean     @default(false)
+  updatedAt        DateTime    @default(now()) @updatedAt
+  items            OrderItem[]
+  stocks           Stock[]
 
   @@index([brand])
+  @@index([tempRequirement])
 }
 
 // Per-warehouse stock. quantity = available to order; reserved = locked by
@@ -92,25 +96,27 @@ model Stock {
 }
 
 model Order {
-  id            Int         @id @default(autoincrement())
-  code          String      @unique
-  status        String      @default("pending") // reserved | pending | shipped | delivered | cancelled | expired
-  source        String      @default("ui") // seed | ui | api
-  warehouseId   String
-  warehouse     Warehouse   @relation(fields: [warehouseId], references: [id])
-  expiresAt     DateTime? // set while status = reserved
-  createdById   String?
-  createdBy     User?       @relation(fields: [createdById], references: [id], onDelete: SetNull)
-  totalWeightKg Float       @default(0)
-  totalVolumeM3 Float       @default(0)
-  createdAt     DateTime    @default(now())
-  items         OrderItem[]
+  id              Int         @id @default(autoincrement())
+  code            String      @unique
+  status          String      @default("pending") // reserved | pending | shipped | delivered | cancelled | expired
+  source          String      @default("ui") // seed | ui | api
+  warehouseId     String
+  warehouse       Warehouse   @relation(fields: [warehouseId], references: [id])
+  tempRequirement String      @default("ambient") // ambient | chilled | mixed, derived from its products
+  expiresAt       DateTime? // set while status = reserved
+  createdById     String?
+  createdBy       User?       @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  totalWeightKg   Float       @default(0)
+  totalVolumeM3   Float       @default(0)
+  createdAt       DateTime    @default(now())
+  items           OrderItem[]
 
   @@index([status])
   @@index([createdAt])
   @@index([warehouseId, status])
   @@index([warehouseId, createdAt])
   @@index([status, expiresAt])
+  @@index([warehouseId, tempRequirement])
 }
 
 model OrderItem {

@@ -13,6 +13,7 @@ A small warehouse app for two warehouses, **Kandy (`KDY`)** and **Peliyagoda (`P
 - **Auth:** register, log in and log out. Passwords are hashed with bcrypt; sessions are JWTs in an httpOnly cookie that lasts 7 days.
 - **Warehouse switcher:** the sidebar picks Kandy, Peliyagoda or All warehouses. The dashboard, orders list, product sorting and the default warehouse for new orders follow it.
 - **Dashboard:** units available and locked, orders, orders awaiting confirmation, orders per month, units ordered by brand, top products, recent orders and low-stock rows (under 50 units). With All selected it also shows a tile per warehouse.
+- **Temperature:** every product is `ambient` or `chilled`. Products and orders show it and can be filtered by it, and the dashboard breaks orders and stock down by it.
 - **Products:** stock per warehouse, with each warehouse's number editable inline. Transfer units between warehouses. Search, filter by brand, sort by stock, show low stock only.
 - **Orders:** every order belongs to one warehouse and takes stock from that warehouse only. List with status filter and search, order detail with status changes, and a form to place new orders.
 - **Stock locking:** if the chosen warehouse can't cover an order, the units it does have are locked for that order until you confirm the partial order or cancel. See [Stock locking](#stock-locking).
@@ -23,17 +24,29 @@ All users share the same products and orders. API keys belong to the user who cr
 
 ## Data
 
-The database is seeded from the two CSV files in the repo root:
+The database is seeded from the two CSV files in the repo root. [`DATASET.md`](DATASET.md) explains how they were built.
 
 | File | Rows | Becomes |
 |---|---|---|
-| `products.csv` | 280 products | `Product` table (brands: Fresh, Style, Tech) |
+| `products.csv` | 330 products | `Product` table |
 | `order_products.csv` | 194,366 order lines | 97,321 orders in `Order` + `OrderItem` |
+
+`products.csv` columns: `product_id, brand, temp_requirement, unit_weight_kg, unit_volume_m3, base_product_id, basis, temperature_basis, verified_real_sku`.
+
+| Brand | Ambient | Chilled |
+|---|---:|---:|
+| Fresh | 53 | 52 |
+| Style | 47 | 0 |
+| Tech | 178 | 0 |
+
+- Product IDs end in `_AMB` or `_CHL`. Fifty Fresh products exist in both versions, for example `C32_FRESH_019_AMB` and `C32_FRESH_019_CHL`. Both share a `base_product_id` and have the same weight and volume.
+- Every order in the data has a single temperature: 60,290 are ambient and 37,031 chilled. Each order stores its `temp_requirement`, taken from its products. An order placed with both kinds is saved as `mixed`. It isn't refused, but the order form warns about it.
+- The products are inferred candidates, not real verified SKUs (`verified_real_sku` is false for all of them).
 
 The CSVs have no warehouses, stock levels or order dates, so the seed fills these in:
 
 - Two warehouses: `KDY` Kandy and `PLG` Peliyagoda.
-- Every product starts with 1000 units in **each** warehouse (`Stock` table, 560 rows).
+- Every product starts with 1000 units in **each** warehouse (`Stock` table, 660 rows).
 - Seeded orders alternate by order number: odd numbers are Kandy (48,665 orders), even numbers are Peliyagoda (48,656).
 - Seeded orders are marked `delivered`, have source `seed`, and don't reduce stock.
 - Seeded order dates are spread evenly over the year before the seed ran, so the monthly chart has data.
@@ -150,22 +163,25 @@ Wherever a warehouse is expected you can pass the code (`KDY`, `PLG`) or the nam
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/warehouses` | Both warehouses with units available, units locked and order counts by status |
-| GET | `/products?warehouse=&brand=&q=&sort=stock&low_stock=true&page=&limit=` | List products with stock per warehouse. `warehouse` picks which warehouse `sort` and `low_stock` look at; without it they use the total and the lowest warehouse. `limit` is at most 100. |
+| GET | `/warehouses` | Both warehouses with units available, units locked, stock by temperature and order counts by status |
+| GET | `/products?warehouse=&brand=&temp=&q=&sort=stock&low_stock=true&page=&limit=` | List products with temperature and stock per warehouse. `temp` is `ambient` or `chilled`. `warehouse` picks which warehouse `sort` and `low_stock` look at; without it they use the total and the lowest warehouse. `limit` is at most 100. |
 | GET | `/products/:id` | One product |
 | PATCH | `/products/:id` | `{ "warehouse": "KDY", "stock": n }` sets or `{ "warehouse": "KDY", "adjust": ±n }` changes available stock in one warehouse |
 | POST | `/products/:id/transfer` | `{ "from": "KDY", "to": "PLG", "quantity": n }` moves available units between warehouses |
-| GET | `/orders?warehouse=&status=&page=&limit=` | List orders, newest first |
+| GET | `/orders?warehouse=&temp=&status=&page=&limit=` | List orders, newest first. Each order has `temp_requirement`: `ambient`, `chilled` or `mixed`. |
 | GET | `/orders/:id` | One order with its items (`:id` is the order code, e.g. `ORD0000001`). Reserved orders include `shortfall`. |
 | POST | `/orders` | `{ "warehouse": "KDY", "items": [{ "product_id": "C32_TECH_001", "quantity": 2 }] }`. Returns 201, 202 or 409 (see [Stock locking](#stock-locking)). |
 | POST | `/orders/:id/confirm` | Accept a reserved order |
 | PUT | `/orders/:id/status` | Change status: `{ "status": "shipped" }` |
 
-Product stock looks like:
+A product looks like:
 
 ```json
-"stock": { "KDY": { "available": 995, "reserved": 5 }, "PLG": { "available": 1000, "reserved": 0 } },
-"total_available": 1995, "total_reserved": 5
+{ "product_id": "C32_FRESH_019_CHL", "brand": "Fresh", "temp_requirement": "chilled",
+  "unit_weight_kg": 6.618, "unit_volume_m3": 0.0336, "base_product_id": "C32_FRESH_019",
+  "basis": "cluster_center", "temperature_basis": "inherited_from_original_order", "verified_real_sku": false,
+  "stock": { "KDY": { "available": 995, "reserved": 5 }, "PLG": { "available": 1000, "reserved": 0 } },
+  "total_available": 1995, "total_reserved": 5, "updated_at": "…" }
 ```
 
 Allowed status changes:
@@ -180,10 +196,10 @@ Cancelling returns the units to the order's own warehouse.
 
 ```bash
 export WH_KEY=wh_xxxxxxxx
-curl -H "x-api-key: $WH_KEY" "https://triathon-warehouse-simple.vercel.app/api/v1/products?warehouse=KDY&sort=stock&limit=5"
+curl -H "x-api-key: $WH_KEY" "https://triathon-warehouse-simple.vercel.app/api/v1/products?temp=chilled&warehouse=KDY&sort=stock&limit=5"
 
 curl -X POST -H "x-api-key: $WH_KEY" -H "Content-Type: application/json" \
-  -d '{"warehouse":"PLG","items":[{"product_id":"C32_TECH_001","quantity":2}]}' \
+  -d '{"warehouse":"PLG","items":[{"product_id":"C32_TECH_001_AMB","quantity":2}]}' \
   https://triathon-warehouse-simple.vercel.app/api/v1/orders
 
 # if that returned 202 (partially available):
@@ -203,14 +219,15 @@ Errors look like `{ "error": { "code": "...", "message": "..." } }`.
 | 409 | `invalid_transition` | Status change that isn't allowed, or confirming an order that isn't reserved |
 | 409 | `reservation_expired` | Confirming after the lock ran out |
 | 409 | `stock_changed` | Another order took the same units at the same moment; retry |
-| 422 | `validation_error` | Body has the wrong shape, or a missing or unknown warehouse |
+| 422 | `validation_error` | Body has the wrong shape, a missing or unknown warehouse, or an unknown `temp` |
 
 ## Testing
 
-`tests/e2e.spec.ts` is a Playwright suite (37 tests) that drives the UI in Chrome and calls every API endpoint. It covers:
+`tests/e2e.spec.ts` is a Playwright suite (41 tests) that drives the UI in Chrome and calls every API endpoint. It covers:
 
 - **Auth:** register, validation, login, logout and redirects
 - **Warehouses:** the switcher scoping the dashboard and orders, per-warehouse stock editing, and transfers
+- **Temperature:** product and order filters, temperature fields in the API, mixed-temperature orders, and the warning on the order form
 - **UI:** dashboard, product search, filters, sorting and paging, and the order form
 - **Orders:** an order takes stock only from its own warehouse, status changes, and cancel returning stock to the right warehouse
 - **Stock locking:** partial orders lock stock, locked units can't be taken by others, and confirm, cancel and expiry all work
@@ -233,7 +250,7 @@ BASE_URL=https://triathon-warehouse-simple.vercel.app npx dotenv -e .vercel/.env
 npx dotenv -e .vercel/.env.production.local -- npm run test:cleanup
 ```
 
-> **Warning:** running the suite against a deployed site writes to its database. It temporarily changes the stock of `C32_STYLE_010`, `C32_STYLE_011`, `C32_TECH_050` and `C32_FRESH_020` and adds test orders. Run `test:cleanup` afterwards.
+> **Warning:** running the suite against a deployed site writes to its database. It temporarily changes the stock of `C32_STYLE_010_AMB`, `C32_STYLE_011_AMB`, `C32_TECH_050_AMB` and `C32_FRESH_020_CHL` and adds test orders. Run `test:cleanup` afterwards.
 
 ## Project layout
 

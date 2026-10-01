@@ -4,6 +4,7 @@ import { prisma } from "./db";
 import { lookupApiKey } from "./apiKey";
 import { AppError } from "./errors";
 import { logApiRequest } from "./usage";
+import { parseTemp } from "./queries";
 import { parseWarehouse, resolveWarehouse, type WarehouseCode } from "./warehouses";
 
 export function apiError(status: number, code: string, message: string, details?: unknown) {
@@ -82,6 +83,15 @@ export function pageParams(url: URL) {
   const page = Math.max(1, Number(url.searchParams.get("page")) || 1);
   const limit = Math.min(100, Math.max(1, Number(url.searchParams.get("limit")) || 20));
   return { page, limit, skip: (page - 1) * limit };
+}
+
+/** Optional ?temp= filter (ambient | chilled): null when absent, 422 when unknown. */
+export function tempParam(url: URL): string | null {
+  const raw = url.searchParams.get("temp");
+  if (!raw) return null;
+  const t = parseTemp(raw);
+  if (!t) throw new AppError(422, "validation_error", "temp must be one of: ambient, chilled");
+  return t;
 }
 
 /** Optional ?warehouse= filter: null when absent, 422 when present but unknown. */

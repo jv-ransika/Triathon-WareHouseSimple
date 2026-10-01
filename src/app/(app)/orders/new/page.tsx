@@ -30,6 +30,7 @@ export default async function NewOrderPage() {
           return {
             id: p.id,
             brand: p.brand,
+            temp: p.tempRequirement,
             unitWeightKg: p.unitWeightKg,
             unitVolumeM3: p.unitVolumeM3,
             stock: Object.fromEntries(Object.entries(stock).map(([k, v]) => [k, v.available])),

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { pageParams, readJson, warehouseParam, withApiKey } from "@/lib/api";
+import { pageParams, readJson, tempParam, warehouseParam, withApiKey } from "@/lib/api";
 import { createOrder, releaseExpiredReservations } from "@/lib/orders";
 import { listOrders, orderJson } from "@/lib/queries";
 
@@ -7,7 +7,13 @@ export const GET = withApiKey(async (req) => {
   const url = new URL(req.url);
   const { page, limit, skip } = pageParams(url);
   await releaseExpiredReservations();
-  const { total, items } = await listOrders({ status: url.searchParams.get("status"), warehouse: warehouseParam(url), skip, limit });
+  const { total, items } = await listOrders({
+    status: url.searchParams.get("status"),
+    warehouse: warehouseParam(url),
+    temp: tempParam(url),
+    skip,
+    limit,
+  });
   return NextResponse.json({ data: items.map(orderJson), page, limit, total });
 });
 

@@ -1,22 +1,23 @@
 import Link from "next/link";
 import { ORDER_STATUSES, releaseExpiredReservations } from "@/lib/orders";
-import { listOrders } from "@/lib/queries";
+import { listOrders, parseTemp, TEMPS } from "@/lib/queries";
 import { getSelectedWarehouse } from "@/lib/warehouseScope";
 import { warehouseName } from "@/lib/warehouses";
-import { PageHeader, Pager, StatusBadge, fmt, fmtDate } from "@/components/ui";
+import { PageHeader, Pager, StatusBadge, TempBadge, fmt, fmtDate } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
 
 const LIMIT = 25;
-type SP = Promise<{ status?: string; q?: string; page?: string }>;
+type SP = Promise<{ status?: string; temp?: string; q?: string; page?: string }>;
 
 export default async function OrdersPage({ searchParams }: { searchParams: SP }) {
   const sp = await searchParams;
   const page = Math.max(1, Number(sp.page) || 1);
   const status = (ORDER_STATUSES as readonly string[]).includes(sp.status ?? "") ? sp.status : undefined;
+  const temp = parseTemp(sp.temp);
   const wh = await getSelectedWarehouse();
   await releaseExpiredReservations();
-  const { total, items } = await listOrders({ status, q: sp.q, warehouse: wh, skip: (page - 1) * LIMIT, limit: LIMIT });
+  const { total, items } = await listOrders({ status, temp, q: sp.q, warehouse: wh, skip: (page - 1) * LIMIT, limit: LIMIT });
 
   return (
     <>
@@ -34,6 +35,12 @@ export default async function OrdersPage({ searchParams }: { searchParams: SP })
             <option key={s} value={s}>{s === "reserved" ? "awaiting confirmation" : s}</option>
           ))}
         </select>
+        <select className="input" style={{ maxWidth: 170 }} name="temp" defaultValue={temp ?? ""} aria-label="Temperature">
+          <option value="">All temperatures</option>
+          {TEMPS.map((t) => (
+            <option key={t} value={t}>{t}</option>
+          ))}
+        </select>
         <button className="btn btn-ghost">Filter</button>
       </form>
 
@@ -43,6 +50,7 @@ export default async function OrdersPage({ searchParams }: { searchParams: SP })
             <tr>
               <th>Order</th>
               <th>Warehouse</th>
+              <th>Temp</th>
               <th>Status</th>
               <th>Source</th>
               <th className="num">Lines</th>
@@ -56,6 +64,7 @@ export default async function OrdersPage({ searchParams }: { searchParams: SP })
               <tr key={o.id}>
                 <td><Link className="link mono" href={`/orders/${o.code}`}>{o.code}</Link></td>
                 <td>{warehouseName(o.warehouseId)}</td>
+                <td><TempBadge temp={o.tempRequirement} /></td>
                 <td><StatusBadge status={o.status} /></td>
                 <td className="muted">{o.source}</td>
                 <td className="num">{o._count.items}</td>
@@ -66,13 +75,13 @@ export default async function OrdersPage({ searchParams }: { searchParams: SP })
             ))}
             {items.length === 0 && (
               <tr>
-                <td colSpan={8} className="muted">No orders match.</td>
+                <td colSpan={9} className="muted">No orders match.</td>
               </tr>
             )}
           </tbody>
         </table>
       </div>
-      <Pager page={page} limit={LIMIT} total={total} basePath="/orders" params={{ q: sp.q, status }} />
+      <Pager page={page} limit={LIMIT} total={total} basePath="/orders" params={{ q: sp.q, status, temp: temp ?? undefined }} />
     </>
   );
 }

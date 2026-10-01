@@ -1,8 +1,8 @@
 import { releaseExpiredReservations } from "@/lib/orders";
-import { listProducts, LOW_STOCK, stockByWarehouse } from "@/lib/queries";
+import { listProducts, LOW_STOCK, parseTemp, stockByWarehouse, TEMPS } from "@/lib/queries";
 import { getSelectedWarehouse } from "@/lib/warehouseScope";
 import { WAREHOUSES, warehouseName } from "@/lib/warehouses";
-import { PageHeader, Pager, fmt } from "@/components/ui";
+import { PageHeader, Pager, TempBadge, fmt } from "@/components/ui";
 import StockEditor from "./StockEditor";
 import TransferForm from "./TransferForm";
 
@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 const BRANDS = ["Fresh", "Style", "Tech"];
 const LIMIT = 25;
 
-type SP = Promise<{ brand?: string; q?: string; sort?: string; low?: string; page?: string }>;
+type SP = Promise<{ brand?: string; temp?: string; q?: string; sort?: string; low?: string; page?: string }>;
 
 export default async function ProductsPage({ searchParams }: { searchParams: SP }) {
   const sp = await searchParams;
@@ -19,9 +19,11 @@ export default async function ProductsPage({ searchParams }: { searchParams: SP 
   const page = Math.max(1, Number(sp.page) || 1);
   const brand = BRANDS.includes(sp.brand ?? "") ? sp.brand : undefined;
   const lowStock = sp.low === "1";
+  const temp = parseTemp(sp.temp);
   await releaseExpiredReservations();
   const { total, items } = await listProducts({
     brand,
+    temp,
     q: sp.q,
     sort: sp.sort,
     lowStock,
@@ -46,6 +48,12 @@ export default async function ProductsPage({ searchParams }: { searchParams: SP 
             <option key={b}>{b}</option>
           ))}
         </select>
+        <select className="input" style={{ maxWidth: 170 }} name="temp" defaultValue={temp ?? ""} aria-label="Temperature">
+          <option value="">All temperatures</option>
+          {TEMPS.map((t) => (
+            <option key={t} value={t}>{t}</option>
+          ))}
+        </select>
         <select className="input" style={{ maxWidth: 200 }} name="sort" defaultValue={sp.sort ?? ""}>
           <option value="">Sort by ID</option>
           <option value="stock">Sort by stock (low first)</option>
@@ -62,6 +70,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: SP 
             <tr>
               <th>Product ID</th>
               <th>Brand</th>
+              <th>Temp</th>
               <th className="num">Unit kg</th>
               <th className="num">Unit m³</th>
               {WAREHOUSES.map((w) => (
@@ -81,6 +90,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: SP 
                 <tr key={p.id} data-product={p.id}>
                   <td className="mono">{p.id}</td>
                   <td>{p.brand}</td>
+                  <td><TempBadge temp={p.tempRequirement} /></td>
                   <td className="num">{fmt(p.unitWeightKg, 2)}</td>
                   <td className="num">{fmt(p.unitVolumeM3, 4)}</td>
                   {WAREHOUSES.map((w) => (
@@ -104,7 +114,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: SP 
             })}
             {items.length === 0 && (
               <tr>
-                <td colSpan={8} className="muted">No products match.</td>
+                <td colSpan={9} className="muted">No products match.</td>
               </tr>
             )}
           </tbody>
@@ -115,7 +125,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: SP 
         limit={LIMIT}
         total={total}
         basePath="/products"
-        params={{ q: sp.q, brand, sort: sp.sort, low: lowStock ? "1" : undefined }}
+        params={{ q: sp.q, brand, temp: temp ?? undefined, sort: sp.sort, low: lowStock ? "1" : undefined }}
       />
     </>
   );

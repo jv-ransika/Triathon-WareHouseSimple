@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { getShortfall, releaseExpiredReservations } from "@/lib/orders";
 import { getOrder } from "@/lib/queries";
 import { warehouseName } from "@/lib/warehouses";
-import { PageHeader, StatusBadge, fmt, fmtDate } from "@/components/ui";
+import { PageHeader, StatusBadge, TempBadge, fmt, fmtDate } from "@/components/ui";
 import ReservationPanel from "./ReservationPanel";
 import StatusForm from "./StatusForm";
 
@@ -64,6 +64,7 @@ export default async function OrderPage({ params }: { params: Promise<{ id: stri
               <tr>
                 <th>Product</th>
                 <th>Brand</th>
+                <th>Temp</th>
                 <th className="num">Requested</th>
                 <th className="num">{order.status === "reserved" ? "Locked" : "Qty"}</th>
                 <th className="num">Weight kg</th>
@@ -75,6 +76,7 @@ export default async function OrderPage({ params }: { params: Promise<{ id: stri
                 <tr key={i.id}>
                   <td className="mono">{i.productId}</td>
                   <td>{i.product.brand}</td>
+                  <td><TempBadge temp={i.product.tempRequirement} /></td>
                   <td className="num">{fmt(i.requestedQuantity)}</td>
                   <td className="num" style={i.quantity < i.requestedQuantity ? { color: "var(--warn)" } : undefined}>
                     {fmt(i.quantity)}
@@ -90,6 +92,10 @@ export default async function OrderPage({ params }: { params: Promise<{ id: stri
           <div>
             <div className="muted text-xs font-medium">Warehouse</div>
             <div>{warehouse} ({order.warehouseId})</div>
+          </div>
+          <div>
+            <div className="muted text-xs font-medium">Temperature</div>
+            <div className="mt-1"><TempBadge temp={order.tempRequirement} /></div>
           </div>
           <div>
             <div className="muted text-xs font-medium">Source</div>

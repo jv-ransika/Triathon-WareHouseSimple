@@ -145,9 +145,14 @@ export async function createOrder(input: unknown, userId: string | null, source:
       if (res.count === 0) throw new AppError(409, "stock_changed", `Stock for ${p.productId} changed while ordering, please retry`);
     }
 
+    // Orders carry the temperature of their products ("mixed" if both are present).
+    const temps = new Set(plan.map((p) => byId.get(p.productId)!.tempRequirement));
+    const tempRequirement = temps.size === 1 ? [...temps][0] : "mixed";
+
     const created = await tx.order.create({
       data: {
         code: `TMP-${randomUUID()}`,
+        tempRequirement,
         status: complete ? "pending" : "reserved",
         expiresAt: complete ? null : new Date(Date.now() + RESERVATION_MINUTES * 60_000),
         source,

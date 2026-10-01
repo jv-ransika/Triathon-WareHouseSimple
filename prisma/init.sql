@@ -46,9 +46,12 @@ CREATE TABLE "Warehouse" (
 CREATE TABLE "Product" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "brand" TEXT NOT NULL,
+    "tempRequirement" TEXT NOT NULL,
     "unitWeightKg" REAL NOT NULL,
     "unitVolumeM3" REAL NOT NULL,
+    "baseProductId" TEXT NOT NULL,
     "basis" TEXT NOT NULL,
+    "temperatureBasis" TEXT NOT NULL,
     "verifiedRealSku" BOOLEAN NOT NULL DEFAULT false,
     "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -73,6 +76,7 @@ CREATE TABLE "Order" (
     "status" TEXT NOT NULL DEFAULT 'pending',
     "source" TEXT NOT NULL DEFAULT 'ui',
     "warehouseId" TEXT NOT NULL,
+    "tempRequirement" TEXT NOT NULL DEFAULT 'ambient',
     "expiresAt" DATETIME,
     "createdById" TEXT,
     "totalWeightKg" REAL NOT NULL DEFAULT 0,
@@ -115,6 +119,9 @@ CREATE INDEX "ApiRequest_apiKeyId_createdAt_idx" ON "ApiRequest"("apiKeyId", "cr
 CREATE INDEX "Product_brand_idx" ON "Product"("brand");
 
 -- CreateIndex
+CREATE INDEX "Product_tempRequirement_idx" ON "Product"("tempRequirement");
+
+-- CreateIndex
 CREATE INDEX "Stock_productId_idx" ON "Stock"("productId");
 
 -- CreateIndex
@@ -134,6 +141,9 @@ CREATE INDEX "Order_warehouseId_createdAt_idx" ON "Order"("warehouseId", "create
 
 -- CreateIndex
 CREATE INDEX "Order_status_expiresAt_idx" ON "Order"("status", "expiresAt");
+
+-- CreateIndex
+CREATE INDEX "Order_warehouseId_tempRequirement_idx" ON "Order"("warehouseId", "tempRequirement");
 
 -- CreateIndex
 CREATE INDEX "OrderItem_orderId_idx" ON "OrderItem"("orderId");
