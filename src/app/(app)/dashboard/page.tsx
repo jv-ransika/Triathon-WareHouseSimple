@@ -78,7 +78,7 @@ export default async function DashboardPage() {
          (SELECT COALESCE(SUM(s.quantity),0) FROM "Stock" s JOIN "Product" p ON p.id = s.productId
             WHERE p.tempRequirement = t.temp ${sWhere}) AS available
        FROM (SELECT 'ambient' AS temp UNION ALL SELECT 'chilled') t`,
-      [...a, ...a, ...a, ...a],
+      [...a, ...a, ...a],
     ),
   ]);
 
